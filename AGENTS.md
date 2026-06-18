@@ -162,7 +162,6 @@ docker compose up --build
 - 前端：`http://localhost:5173`
 - 后端健康检查：`http://localhost:8080/api/health`
 - PostgreSQL：`localhost:5432`
-- 目前后台登录密码为：OpsCore2026
 
 后端本地开发：
 
