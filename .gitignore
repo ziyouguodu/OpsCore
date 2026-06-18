@@ -1,0 +1,9 @@
+.cache/
+.superpowers/
+frontend/node_modules/
+frontend/dist/
+backend/opscore-api
+*.log
+.env
+*/.DS_Store
+

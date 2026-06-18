@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 原型 v15</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; color: #172033; background: #eef2f7; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; border: 0; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 280px minmax(0, 1fr); }
+    .sidebar { background: #fff; border-right: 1px solid #d9dee8; padding: 18px 12px; overflow-y: auto; }
+    .brand { display: flex; align-items: center; gap: 10px; margin: 0 8px 22px; font-size: 18px; font-weight: 800; }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; }
+    .side-section { margin: 16px 10px 8px; color: #98a2b3; font-size: 12px; }
+    .nav-row, .nav-parent, .nav-child { width: 100%; display: flex; align-items: center; gap: 9px; border-radius: 8px; color: #3f4b5f; background: transparent; }
+    .nav-row { padding: 10px; text-align: left; }
+    .nav-row.active, .nav-child.active { color: #174ea6; background: #e8f0ff; font-weight: 700; }
+    .nav-group { margin-bottom: 8px; }
+    .nav-group.disabled .nav-parent { color: #98a2b3; }
+    .nav-parent { padding: 9px 10px; font-size: 13px; }
+    .nav-parent strong { flex: 1; text-align: left; }
+    .nav-state { margin-left: auto; color: #98a2b3; font-size: 11px; }
+    .nav-children { margin-left: 24px; padding-left: 8px; border-left: 1px solid #e5e9f2; display: grid; gap: 3px; }
+    .nav-child { min-height: 31px; padding: 5px 7px; text-align: left; font-size: 12px; }
+    .nav-child.disabled { color: #a3adbd; cursor: not-allowed; }
+    .nav-child span:nth-child(2) { flex: 1; }
+    .nav-child em { border-radius: 999px; padding: 2px 6px; color: #2563eb; background: #eef4ff; font-style: normal; font-size: 10px; }
+    .nav-child.disabled em { color: #98a2b3; background: #f2f4f7; }
+    .nav-icon, .child-icon { display: grid; place-items: center; border-radius: 5px; color: #31517f; background: #f7faff; border: 1px solid #e0e6ef; flex: 0 0 auto; }
+    .nav-icon { width: 20px; height: 20px; }
+    .child-icon { width: 17px; height: 17px; color: #2563eb; background: #eef5ff; border-color: #c9dcff; font-size: 11px; }
+    .disabled .child-icon { color: #98a2b3; background: #f5f7fb; border-color: #e1e7f0; }
+    .nav-icon svg, .child-icon svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .main { min-width: 0; padding: 24px; }
+    .topbar { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    h2, h3 { margin: 0 0 12px; }
+    p { margin: 0; color: #667085; }
+    .top-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .top-actions button, .primary { min-height: 34px; border-radius: 7px; padding: 0 12px; background: #2563eb; color: #fff; }
+    .secondary { min-height: 34px; border-radius: 7px; padding: 0 12px; color: #344054; background: #fff; border: 1px solid #d9dee8; }
+    .user-pill { padding: 7px 11px; border-radius: 999px; background: #fff; border: 1px solid #d9dee8; }
+    .muted { color: #667085; }
+    .panel, .kpis article, .metric { background: #fff; border: 1px solid #d9dee8; border-radius: 10px; }
+    .view { display: none; }
+    .view.active { display: block; }
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .kpis article { padding: 14px; display: grid; gap: 7px; }
+    .kpis small, .metric span { color: #667085; }
+    .kpis strong, .metric strong { font-size: 28px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .metric { min-height: 110px; padding: 14px; }
+    .metric svg { width: 100%; height: 35px; margin-top: 12px; color: #12b981; }
+    .metric svg path { stroke: currentColor; stroke-width: 4; fill: none; stroke-linecap: round; }
+    .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; height: 36px; align-items: end; margin-top: 14px; }
+    .bars i { border-radius: 999px 999px 2px 2px; background: linear-gradient(180deg, #2563eb, #12b981); }
+    .progress { height: 8px; border-radius: 999px; overflow: hidden; background: #edf0f5; margin-top: 18px; }
+    .progress i { display: block; height: 100%; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .dots { display: flex; gap: 8px; margin-top: 14px; }
+    .dots i { width: 18px; height: 18px; border-radius: 50%; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .7fr); gap: 12px; }
+    .panel { padding: 16px; margin-bottom: 14px; }
+    .flow { display: grid; gap: 10px; padding-left: 20px; color: #475467; }
+    .form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .cmdb-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .7fr); gap: 14px; align-items: start; }
+    .cmdb-form { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    input, select { min-height: 34px; border: 1px solid #d8e0ec; border-radius: 7px; padding: 7px 10px; background: #fff; }
+    .asset-detail { background: #f8fbff; border: 1px solid #dbe7f8; border-radius: 10px; padding: 14px; position: sticky; top: 18px; }
+    .asset-detail dl { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px 10px; margin: 0 0 14px; font-size: 13px; }
+    .asset-detail dt { color: #667085; }
+    .asset-detail dd { margin: 0; color: #172033; }
+    .credential-box { border-top: 1px solid #dbe7f8; padding-top: 12px; }
+    .credential-form { grid-template-columns: 1fr; margin-top: 10px; }
+    .credential-actions, .credential-reveal { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .credential-reveal input { min-width: 210px; flex: 1; }
+    .pill { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 0 8px; font-size: 12px; color: #475467; background: #eef2f7; border: 1px solid #d9dee8; }
+    .pill.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    .cards article, .permission-grid article { display: grid; gap: 8px; background: #fff; border: 1px solid #d9dee8; border-radius: 9px; padding: 14px; }
+    .permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .donut { width: 138px; height: 138px; border-radius: 50%; background: conic-gradient(#ef4444 0 25%, #d97706 25% 50%, #2563eb 50% 75%, #12b981 75%); display: grid; place-items: center; margin: 6px auto; }
+    .donut b { width: 72px; height: 72px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 26px; }
+    .copilot { display: none; position: fixed; right: 24px; bottom: 24px; width: 380px; max-width: calc(100vw - 48px); background: #fff; border: 1px solid #cdd7eb; border-radius: 12px; box-shadow: 0 20px 46px rgba(16,24,40,.18); overflow: hidden; z-index: 20; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .copilot.expanded { width: min(760px, calc(100vw - 48px)); height: min(680px, calc(100vh - 48px)); }
+    .copilot header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; color: #fff; background: linear-gradient(135deg, #172033, #273b6f); }
+    .copilot-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .copilot-title strong, .copilot-title small { display: block; }
+    .copilot-title small { margin-top: 2px; color: rgba(255,255,255,.72); font-size: 12px; }
+    .copilot-logo, .copilot-actions button { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #fff; background: rgba(255,255,255,.12); }
+    .copilot-logo svg, .copilot-actions svg, .copilot-button svg { width: 17px; height: 17px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .copilot-actions { display: flex; align-items: center; gap: 8px; }
+    .copilot-actions button { border-radius: 50%; }
+    .copilot-body { min-height: 230px; overflow: auto; padding: 14px 18px 8px; }
+    .copilot-body p { margin-bottom: 16px; font-size: 15px; line-height: 1.55; }
+    .chat { margin: 9px 12px; padding: 9px 10px; border-radius: 9px; font-size: 13px; }
+    .chat.user { margin-left: 50px; color: #fff; background: #2563eb; }
+    .chat.ai { margin-right: 50px; background: #f1f5ff; border: 1px solid #d7e3ff; }
+    .copilot-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid #edf0f5; background: #fff; }
+    .copilot-input input { width: 100%; }
+    .copilot-button { position: fixed; right: 24px; bottom: 24px; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #2563eb, #6d5bd0); box-shadow: 0 14px 34px rgba(37,99,235,.34); }
+    @media (max-width: 1040px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .kpis, .metric-grid, .split, .form-grid, .permission-grid, .cmdb-layout, .cmdb-form { grid-template-columns: 1fr; }
+      .copilot, .copilot.expanded { left: 16px; right: 16px; bottom: 16px; width: auto; height: min(620px, calc(100vh - 32px)); max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><img src="../logo.png" alt="OpsCore logo" /><span>OpsCore</span></div>
+      <div class="side-section">工作台</div>
+      <button class="nav-row active" data-view="dashboard"><span class="nav-icon" data-icon="dashboard"></span>首页仪表盘</button>
+      <div class="side-section">功能模块</div>
+      <div class="nav-group">
+        <div class="nav-parent"><span class="nav-icon" data-icon="asset"></span><strong>资产管理</strong><span class="nav-state">展开</span></div>
+        <div class="nav-children">
+          <button class="nav-child" data-view="cmdb"><span class="child-icon" data-icon="cmdb"></span><span>资产台账（CMDB）</span><em>一期</em></button>
+          <button class="nav-child" data-view="middleware"><span class="child-icon" data-icon="database"></span><span>中间件与数据库</span><em>一期</em></button>
+          <button class="nav-child disabled" disabled><span class="child-icon" data-icon="cloud"></span><span>云资源管理</span><em>灰度</em></button>
+          <button class="nav-child disabled" disabled><span class="child-icon" data-icon="container"></span><span>容器平台</span><em>灰度</em></button>
+        </div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-parent"><span class="nav-icon" data-icon="collab"></span><strong>协同与事件响应</strong><span class="nav-state">展开</span></div>
+        <div class="nav-children">
+          <button class="nav-child" data-view="oncall"><span class="child-icon" data-icon="calendar"></span><span>值班管理</span><em>一期</em></button>
+          <button class="nav-child" data-view="tasks"><span class="child-icon" data-icon="task"></span><span>任务跟踪</span><em>一期</em></button>
+          <button class="nav-child" data-view="incidents"><span class="child-icon" data-icon="incident"></span><span>事件管理</span><em>一期</em></button>
+        </div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-parent"><span class="nav-icon" data-icon="shield"></span><strong>权限管理</strong><span class="nav-state">展开</span></div>
+        <div class="nav-children">
+          <button class="nav-child" data-view="permissions"><span class="child-icon" data-icon="users"></span><span>用户与角色</span><em>一期</em></button>
+          <button class="nav-child" data-view="permissions"><span class="child-icon" data-icon="lock"></span><span>菜单与资源权限</span><em>一期</em></button>
+          <button class="nav-child disabled" disabled><span class="child-icon" data-icon="audit"></span><span>审批与操作审计</span><em>灰度</em></button>
+          <button class="nav-child disabled" disabled><span class="child-icon" data-icon="key"></span><span>SSO / LDAP</span><em>灰度</em></button>
+        </div>
+      </div>
+      <div class="nav-group disabled"><div class="nav-parent"><span class="nav-icon" data-icon="sre"></span><strong>SRE 管理</strong><span class="nav-state">灰度</span></div></div>
+      <div class="nav-group disabled"><div class="nav-parent"><span class="nav-icon" data-icon="eye"></span><strong>可观测性</strong><span class="nav-state">灰度</span></div></div>
+      <div class="nav-group disabled"><div class="nav-parent"><span class="nav-icon" data-icon="finops"></span><strong>容量规划 & FinOps</strong><span class="nav-state">灰度</span></div></div>
+      <div class="nav-group disabled"><div class="nav-parent"><span class="nav-icon" data-icon="change"></span><strong>变更 & 自动化</strong><span class="nav-state">灰度</span></div></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">首页仪表盘</h1>
+          <p id="page-desc">面向管理人员和运维团队，聚合资产健康、值班状态、待办任务与事件风险。</p>
+        </div>
+        <div class="top-actions">
+          <button class="secondary">导出周报</button>
+          <button class="secondary">创建任务</button>
+          <button class="primary">新建事件</button>
+          <span class="user-pill">admin · 超级管理员</span>
+        </div>
+      </header>
+
+      <section id="dashboard" class="view active">
+        <div class="kpis">
+          <article><small>纳管资产</small><strong>1,284</strong><span>服务器 / 应用 / 数据库 / 中间件</span></article>
+          <article><small>今日值班</small><strong>8</strong><span>主值 2，备值 6，升级链正常</span></article>
+          <article><small>进行中任务</small><strong>36</strong><span>临近截止 5，逾期 2</span></article>
+          <article><small>活跃事件</small><strong>4</strong><span>P1 事件 1 个，需管理审批</span></article>
+        </div>
+        <div class="metric-grid">
+          <article class="metric"><span>资产健康率</span><strong>96.8%</strong><svg viewBox="0 0 180 36"><path d="M2 25 C24 22 32 14 52 17 C76 20 83 9 104 12 C130 15 140 25 178 8" /></svg></article>
+          <article class="metric"><span>事件平均响应</span><strong>18m</strong><div class="bars"><i style="height:28px"></i><i style="height:23px"></i><i style="height:24px"></i><i style="height:18px"></i><i style="height:17px"></i><i style="height:14px"></i><i style="height:12px"></i></div></article>
+          <article class="metric"><span>任务按时完成</span><strong>89%</strong><div class="progress"><i style="width:89%"></i></div><p class="muted" style="margin-top:8px">5 个临近截止</p></article>
+          <article class="metric"><span>权限风险</span><strong>7</strong><div class="dots"><i style="background:#ef4444"></i><i style="background:#d97706"></i><i style="background:#d97706"></i><i style="background:#2563eb"></i><i style="background:#12b981"></i><i style="background:#12b981"></i></div></article>
+        </div>
+        <div class="split">
+          <section class="panel">
+            <h3>近 7 日事件趋势</h3>
+            <p class="muted">展示事件新增、关闭与待处理压力变化</p>
+            <svg viewBox="0 0 720 170" style="width:100%;height:170px;margin-top:8px">
+              <path d="M40 120 C110 110 120 55 190 70 S285 30 350 56 S450 120 520 86 S610 70 680 64" stroke="#2563eb" stroke-width="5" fill="none" />
+              <path d="M40 136 C120 110 170 100 250 94 S370 84 450 88 S560 58 680 68" stroke="#12b981" stroke-width="4" fill="none" stroke-dasharray="8 8" />
+              <text x="38" y="158" font-size="12" fill="#98a2b3">周一</text><text x="145" y="158" font-size="12" fill="#98a2b3">周二</text><text x="255" y="158" font-size="12" fill="#98a2b3">周三</text><text x="365" y="158" font-size="12" fill="#98a2b3">周四</text><text x="475" y="158" font-size="12" fill="#98a2b3">周五</text><text x="585" y="158" font-size="12" fill="#98a2b3">周六</text><text x="675" y="158" font-size="12" fill="#98a2b3">周日</text>
+            </svg>
+          </section>
+          <section class="panel">
+            <h3>活跃事件等级</h3>
+            <div class="donut"><b>4</b></div>
+            <p><span class="pill danger">P1 高危 1</span> <span class="pill">P2 重要 1</span> <span class="pill">P3 一般 1</span> <span class="pill success">P4 观察 1</span></p>
+          </section>
+        </div>
+        <div class="split">
+          <section class="panel">
+            <h3>事件与任务优先级</h3>
+            <div class="table-wrap"><table><thead><tr><th>类型</th><th>标题</th><th>负责人</th><th>状态</th><th>截止时间</th></tr></thead><tbody>
+              <tr><td><span class="pill danger">事件 P1</span></td><td>支付服务异常峰值，需要跨团队协同</td><td>运维工程师 / 研发</td><td><span class="pill danger">处理中</span></td><td>剩余 42 分钟</td></tr>
+              <tr><td><span class="pill">任务</span></td><td>核心数据库巡检结果确认</td><td>SRE</td><td><span class="pill">待确认</span></td><td>今天 18:00</td></tr>
+              <tr><td><span class="pill">资产</span></td><td>新增 24 台云主机等待归属确认</td><td>运维工程师</td><td><span class="pill">待处理</span></td><td>明天 12:00</td></tr>
+            </tbody></table></div>
+          </section>
+          <section class="panel">
+            <h3>事件响应流程</h3>
+            <ol class="flow"><li>创建事件 / 关联资产</li><li>处理中 / 拉起 War Room</li><li>恢复确认 / 记录复盘</li><li>关闭与复盘归档</li></ol>
+          </section>
+        </div>
+      </section>
+
+      <section id="cmdb" class="view panel">
+        <h2>资产台账（CMDB）</h2>
+        <p class="muted">录入服务器与基础资产信息，维护配置规格、网络区域、所属业务、部署信息、负责人、状态和受控登录信息。</p>
+        <div class="cmdb-layout" style="margin-top:14px">
+          <section>
+            <div class="form-grid cmdb-form">
+              <input placeholder="资产编号" value="SRV-PAY-001" /><select><option>服务器</option><option>数据库</option><option>中间件</option></select><input placeholder="厂商" value="Dell" /><input placeholder="CPU 架构" value="x86_64" /><input placeholder="SN" value="SN-9A1F" />
+              <input placeholder="物理位置" value="上海-机柜 A12" /><input placeholder="所属业务" value="支付服务" /><input placeholder="IPv4" value="10.10.8.21" /><input placeholder="IPv6" /><select><option>生产</option><option>预发</option><option>测试</option></select>
+              <input placeholder="操作系统" value="Ubuntu 22.04" /><input placeholder="主机名" value="pay-core-01" /><input placeholder="网络区域" value="prod-app" /><input placeholder="CPU 规格" value="16C" /><input placeholder="内存规格" value="64GB" />
+              <input placeholder="磁盘规格" value="2TB SSD" /><input placeholder="部署信息" value="Docker Compose" /><input placeholder="负责人" value="运维工程师" /><select><option>运行中</option><option>维护中</option><option>停用</option></select><button class="primary">保存资产</button>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>资产编号</th><th>类型</th><th>主机名</th><th>IP</th><th>业务</th><th>状态</th><th>操作</th></tr></thead><tbody>
+              <tr><td>SRV-PAY-001</td><td>服务器</td><td>pay-core-01</td><td>10.10.8.21</td><td>支付服务</td><td><span class="pill success">运行中</span></td><td><button class="secondary">详情</button></td></tr>
+              <tr><td>DB-CORE-003</td><td>数据库</td><td>order-db-03</td><td>10.20.3.16</td><td>订单中心</td><td><span class="pill success">运行中</span></td><td><button class="secondary">详情</button></td></tr>
+            </tbody></table></div>
+          </section>
+          <aside class="asset-detail">
+            <h3>资产详情</h3>
+            <dl><dt>资产编号</dt><dd>SRV-PAY-001</dd><dt>厂商 / SN</dt><dd>Dell / SN-9A1F</dd><dt>配置规格</dt><dd>16C / 64GB / 2TB SSD</dd><dt>部署信息</dt><dd>Docker Compose</dd><dt>负责人</dt><dd>运维工程师</dd></dl>
+            <div class="credential-box">
+              <h4>登录信息</h4>
+              <p class="muted">密码/密钥加密存储，默认隐藏，需输入当前登录密码后二次校验查看。</p>
+              <div class="credential-actions"><button class="secondary">加载登录信息</button><span class="pill danger">已保存密钥</span></div>
+              <div class="form-grid credential-form"><input value="https://console.pay.example" /><input value="ops_admin" /><input type="password" value="********" /><input value="紧急登录账号，需审计" /><button class="primary">保存登录信息</button></div>
+              <div class="credential-reveal"><input type="password" placeholder="输入当前登录密码查看密码/密钥" /><button class="secondary">二次校验查看</button></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="middleware" class="view panel">
+        <h2>中间件与数据库</h2>
+        <p class="muted">一期纳入 MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx。</p>
+        <div class="table-wrap" style="margin-top:14px"><table><thead><tr><th>名称</th><th>类型</th><th>版本</th><th>环境</th><th>Endpoint</th><th>业务</th><th>负责人</th><th>状态</th></tr></thead><tbody>
+          <tr><td>pay-mysql-primary</td><td>MySQL</td><td>8.0</td><td>生产</td><td>10.20.3.16:3306</td><td>支付服务</td><td>DBA</td><td><span class="pill success">运行中</span></td></tr>
+          <tr><td>cache-order</td><td>Redis</td><td>7.2</td><td>生产</td><td>10.20.6.8:6379</td><td>订单中心</td><td>运维工程师</td><td><span class="pill success">运行中</span></td></tr>
+          <tr><td>gateway-nginx</td><td>Nginx</td><td>1.26</td><td>生产</td><td>10.10.1.10:443</td><td>网关</td><td>运维工程师</td><td><span class="pill success">运行中</span></td></tr>
+        </tbody></table></div>
+      </section>
+
+      <section id="oncall" class="view panel">
+        <h2>值班管理</h2>
+        <div class="form-grid"><select><option>按天</option><option>按周</option></select><input value="2026-05-23" /><input placeholder="周" /><input value="张工" /><input value="李工" /><input placeholder="换班人" /><input placeholder="接班人" /><button class="primary">保存值班</button></div>
+        <div class="table-wrap"><table><thead><tr><th>规则</th><th>日期/周</th><th>主值</th><th>备值</th><th>换班记录</th><th>备注</th></tr></thead><tbody><tr><td>按天</td><td>2026-05-23</td><td>张工</td><td>李工</td><td>-</td><td>支付服务重点关注</td></tr><tr><td>按周</td><td>2026-W21</td><td>王工</td><td>赵工</td><td>赵工 → 李工</td><td>周末换班已确认</td></tr></tbody></table></div>
+      </section>
+
+      <section id="tasks" class="view panel">
+        <h2>任务跟踪</h2>
+        <div class="form-grid"><input placeholder="任务标题" /><input placeholder="负责人" /><input placeholder="截止时间" /><button class="primary">创建任务</button></div>
+        <div class="cards"><article><strong>核心数据库巡检结果确认</strong><span>SRE · 今天 18:00</span><select><option>待确认</option><option>已完成</option></select></article><article><strong>新增 24 台云主机等待归属确认</strong><span>运维工程师 · 明天 12:00</span><select><option>待处理</option><option>处理中</option></select></article></div>
+      </section>
+
+      <section id="incidents" class="view panel">
+        <h2>事件管理</h2>
+        <div class="form-grid"><input placeholder="事件标题" /><select><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select><input placeholder="负责人" /><input placeholder="所属业务" /><button class="primary">创建事件</button></div>
+        <div class="cards"><article><strong>P1 · 支付服务异常峰值</strong><span>支付服务 · 运维工程师 / 研发</span><select><option>处理中</option><option>已恢复</option><option>已关闭</option></select></article><article><strong>P3 · 订单消息堆积观察</strong><span>订单中心 · 运维工程师</span><select><option>新建</option><option>处理中</option></select></article></div>
+      </section>
+
+      <section id="permissions" class="view panel">
+        <h2>权限管理</h2>
+        <div class="permission-grid">
+          <article><strong>超级管理员</strong><span>全部权限，负责初始化系统、角色和敏感登录信息授权。</span></article>
+          <article><strong>运维工程师</strong><span>资产台账（CMDB）查看与配置修改；查看值班；任务处理；事件跟进；默认不可查看资产登录密钥。</span></article>
+        </div>
+      </section>
+
+    </main>
+
+    <section id="copilot-panel" class="copilot">
+      <header>
+        <div class="copilot-title"><span class="copilot-logo" data-icon="bot"></span><div><strong>OpsCore AI Copilot</strong><small>资产、事件、值班与任务助手</small></div></div>
+        <div class="copilot-actions"><button title="放大窗口" onclick="toggleCopilotSize()"><span data-icon="maximize"></span></button><button title="隐藏 Copilot" onclick="toggleCopilot(false)"><span data-icon="minimize"></span></button></div>
+      </header>
+      <div class="copilot-body">
+        <p>我可以帮你查询 CMDB 资产、定位活跃事件、汇总今日值班和待处理任务。</p>
+        <div class="chat user">帮我看一下当前 P1 事件和关联资产。</div>
+        <div class="chat ai">当前 1 个 P1 事件，关联支付服务、3 台应用主机和 1 个数据库实例。</div>
+      </div>
+      <div class="copilot-input"><input placeholder="输入问题，例如：查询支付服务关联资产" /><button class="primary">发送</button></div>
+    </section>
+    <button id="copilot-button" class="copilot-button" title="打开 AI Copilot" onclick="toggleCopilot(true)"><span data-icon="bot"></span></button>
+  </div>
+  <script>
+    const iconPaths = {
+      dashboard: ['M4 13h7V4H4z', 'M13 20h7V4h-7z', 'M4 20h7v-5H4z'],
+      asset: ['M4 8l8-4 8 4-8 4z', 'M4 8v8l8 4 8-4V8', 'M12 12v8'],
+      cmdb: ['M4 5h16v14H4z', 'M8 9h8', 'M8 13h5'],
+      database: ['M5 5c0 2 3 3 7 3s7-1 7-3-3-3-7-3-7 1-7 3z', 'M5 5v10c0 2 3 4 7 4s7-2 7-4V5', 'M5 10c0 2 3 3 7 3s7-1 7-3'],
+      cloud: ['M6 18h12a4 4 0 0 0 0-8 6 6 0 0 0-11-2A5 5 0 0 0 6 18z'],
+      container: ['M12 3l8 4v10l-8 4-8-4V7z', 'M4 7l8 4 8-4', 'M12 11v10'],
+      collab: ['M7 8h10', 'M7 12h6', 'M5 20l3-3h9a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7'],
+      calendar: ['M8 2v4', 'M16 2v4', 'M4 8h16', 'M4 4h16v16H4z'],
+      task: ['M9 11l2 2 4-5', 'M5 4h14v16H5z', 'M8 17h8'],
+      incident: ['M12 9v4', 'M12 17h.01', 'M10 3h4l7 12-2 4H5l-2-4z'],
+      shield: ['M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z', 'M9 12l2 2 4-5'],
+      users: ['M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M3 19c1-4 4-6 6-6s5 2 6 6', 'M16 11h5'],
+      lock: ['M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z', 'M9 12h6'],
+      audit: ['M6 4h12v16H6z', 'M9 12l2 2 4-5'],
+      key: ['M8 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M11 9h9', 'M17 9v3'],
+      sre: ['M12 3v3', 'M12 18v3', 'M3 12h3', 'M18 12h3', 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z'],
+      eye: ['M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],
+      finops: ['M4 19V5', 'M4 19h16', 'M8 16v-4', 'M12 16V8', 'M16 16v-6'],
+      bot: ['M12 8V4', 'M8 4h8', 'M5 8h14v10H5z', 'M9 13h.01', 'M15 13h.01'],
+      change: ['M4 7h10', 'M14 7l-3-3', 'M14 7l-3 3', 'M20 17H10', 'M10 17l3-3', 'M10 17l3 3'],
+      minimize: ['M5 12h14'],
+      maximize: ['M5 5h14v14H5z']
+    };
+    document.querySelectorAll('[data-icon]').forEach((node) => {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      (iconPaths[node.dataset.icon] || iconPaths.dashboard).forEach((d) => {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        svg.appendChild(path);
+      });
+      node.appendChild(svg);
+    });
+    const titles = {
+      dashboard: ['首页仪表盘', '面向管理人员和运维团队，聚合资产健康、值班状态、待办任务与事件风险。'],
+      cmdb: ['资产台账（CMDB）', '服务器与基础资产台账，拓扑视图与配置变更作为内部能力统一承载。'],
+      middleware: ['中间件与数据库', '一期覆盖 MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx 实例与凭据管理。'],
+      oncall: ['值班管理', '支持按天、按周、主值/备值和换班记录。'],
+      tasks: ['任务跟踪', '任务状态流：待处理、处理中、待确认、已完成、已关闭。'],
+      incidents: ['事件管理', '事件等级 P1-P4，状态流：新建、处理中、已恢复、已关闭。'],
+      permissions: ['权限管理', '一期聚焦超级管理员与运维工程师最小权限模型。']
+    };
+    document.querySelectorAll('[data-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const view = button.dataset.view;
+        document.querySelectorAll('.view').forEach((node) => node.classList.toggle('active', node.id === view));
+        document.querySelectorAll('[data-view]').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
+        document.getElementById('page-title').textContent = titles[view][0];
+        document.getElementById('page-desc').textContent = titles[view][1];
+      });
+    });
+    function toggleCopilot(open) {
+      document.getElementById('copilot-panel').style.display = open ? 'grid' : 'none';
+      document.getElementById('copilot-button').style.display = open ? 'none' : 'grid';
+    }
+    function toggleCopilotSize() {
+      document.getElementById('copilot-panel').classList.toggle('expanded');
+    }
+  </script>
+</body>
+</html>

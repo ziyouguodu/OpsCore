@@ -1,0 +1,45 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opscore}
+      POSTGRES_USER: ${POSTGRES_USER:-opscore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opscore}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opscore} -d ${POSTGRES_DB:-opscore}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ../backend
+    environment:
+      OPSCORE_LISTEN_ADDR: ":8080"
+      OPSCORE_DATABASE_URL: "postgres://${POSTGRES_USER:-opscore}:${POSTGRES_PASSWORD:-opscore}@postgres:5432/${POSTGRES_DB:-opscore}?sslmode=disable"
+      OPSCORE_JWT_SECRET: ${OPSCORE_JWT_SECRET:-change-this-in-production}
+      OPSCORE_CREDENTIAL_ENCRYPTION_KEY: ${OPSCORE_CREDENTIAL_ENCRYPTION_KEY:-change-this-credential-key-32bytes}
+      OPSCORE_INITIAL_ADMIN_PASSWORD: ${OPSCORE_INITIAL_ADMIN_PASSWORD:-ChangeMe123!}
+      OPSCORE_CORS_ORIGIN: ${OPSCORE_CORS_ORIGIN:-http://localhost:5173}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:

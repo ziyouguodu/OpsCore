@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 登录页原型 - 智能运维中枢指挥平台</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --bg: #07101d;
+      --panel: rgba(8, 17, 31, .74);
+      --panel-strong: rgba(9, 18, 32, .92);
+      --line: rgba(91, 141, 185, .24);
+      --line-strong: rgba(91, 190, 255, .42);
+      --text: #f4f8ff;
+      --muted: #8fa3bf;
+      --blue: #38bdf8;
+      --cyan: #2dd4bf;
+      --amber: #f59e0b;
+      --red: #fb7185;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 66% 40%, rgba(56, 189, 248, .18), transparent 30%),
+        radial-gradient(circle at 20% 78%, rgba(45, 212, 191, .11), transparent 28%),
+        linear-gradient(rgba(125, 211, 252, .06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 211, 252, .06) 1px, transparent 1px),
+        linear-gradient(135deg, #07101d 0%, #0a1424 56%, #08111f 100%);
+      background-size: auto, auto, 52px 52px, 52px 52px, auto;
+      overflow: hidden;
+    }
+    .screen {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(620px, 1fr) minmax(390px, 470px);
+      gap: 44px;
+      align-items: center;
+      padding: 70px 76px;
+      position: relative;
+    }
+    .screen::before {
+      content: "";
+      position: absolute;
+      inset: 7% 43% 8% 4%;
+      border: 1px solid rgba(91, 141, 185, .12);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(15, 23, 42, .2), transparent);
+      pointer-events: none;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 54px;
+      font-size: 22px;
+      font-weight: 800;
+    }
+    .brand img {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      background: #fff;
+      object-fit: cover;
+    }
+    .hero {
+      position: relative;
+      z-index: 1;
+      max-width: 780px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 64px;
+      line-height: 1.05;
+      letter-spacing: 0;
+      font-weight: 900;
+    }
+    .lead {
+      margin: 22px 0 0;
+      max-width: 760px;
+      color: #b8c7db;
+      font-size: 18px;
+      line-height: 1.68;
+      font-weight: 650;
+    }
+    .command-layer {
+      position: relative;
+      height: 330px;
+      margin-top: 44px;
+      max-width: 760px;
+    }
+    .orbit {
+      position: absolute;
+      left: 6%;
+      right: 6%;
+      top: 18%;
+      height: 184px;
+      border: 1px solid rgba(56, 189, 248, .18);
+      border-radius: 50%;
+      transform: rotate(-2deg);
+    }
+    .axis {
+      position: absolute;
+      left: 7%;
+      right: 7%;
+      top: 46%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, .7), rgba(45, 212, 191, .55), transparent);
+    }
+    .core {
+      position: absolute;
+      left: 50%;
+      top: 40%;
+      width: 150px;
+      height: 150px;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 8px;
+      border-radius: 50%;
+      border: 1px solid rgba(125, 211, 252, .45);
+      background: radial-gradient(circle, rgba(56, 189, 248, .42), rgba(37, 99, 235, .12) 70%, rgba(8, 17, 31, .88));
+      box-shadow: 0 0 42px rgba(56, 189, 248, .25);
+      text-align: center;
+    }
+    .core small { color: #8de7ff; font-weight: 850; }
+    .core strong { font-size: 18px; line-height: 1.2; }
+    .node {
+      position: absolute;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid rgba(125, 211, 252, .28);
+      border-radius: 999px;
+      background: rgba(8, 17, 31, .84);
+      color: #d9e8f8;
+      font-size: 13px;
+      font-weight: 850;
+      box-shadow: 0 0 20px rgba(56, 189, 248, .08);
+    }
+    .node::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 12px currentColor;
+    }
+    .node.data { left: 6%; top: 16%; }
+    .node.continuity { right: 6%; top: 16%; }
+    .node.automation { left: 9%; bottom: 32%; }
+    .node.governance { right: 9%; bottom: 32%; }
+    .node.ai { left: 50%; bottom: 23%; transform: translateX(-50%); border-color: rgba(45, 212, 191, .38); }
+    .node.continuity::before, .node.ai::before { background: var(--cyan); }
+    .node.automation::before { background: var(--amber); }
+    .node.governance::before { background: var(--red); }
+    .flow {
+      position: absolute;
+      left: 8%;
+      right: 8%;
+      bottom: 6%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 999px;
+      background: rgba(8, 17, 31, .58);
+      color: #c8d5e7;
+      font-size: 13px;
+      font-weight: 850;
+    }
+    .flow i {
+      width: 20px;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(56, 189, 248, .15), rgba(56, 189, 248, .72));
+    }
+    .login {
+      position: relative;
+      z-index: 2;
+      padding: 30px;
+      border: 1px solid rgba(125, 211, 252, .22);
+      border-radius: 16px;
+      background: rgba(7, 14, 26, .9);
+      box-shadow: 0 28px 90px rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255,255,255,.05);
+      backdrop-filter: blur(16px);
+    }
+    .login small {
+      color: #7dd3fc;
+      font-weight: 850;
+    }
+    .login h2 {
+      margin: 10px 0 8px;
+      font-size: 30px;
+    }
+    .login p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    label {
+      display: grid;
+      gap: 8px;
+      margin-top: 16px;
+      color: #c8d5e7;
+      font-weight: 750;
+    }
+    input {
+      height: 48px;
+      border: 1px solid rgba(125, 211, 252, .2);
+      border-radius: 10px;
+      padding: 0 14px;
+      color: var(--text);
+      background: rgba(8, 17, 31, .92);
+      outline: none;
+      font-size: 16px;
+    }
+    input:focus {
+      border-color: rgba(56, 189, 248, .72);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, .12);
+    }
+    button {
+      width: 100%;
+      height: 48px;
+      margin-top: 24px;
+      border: 0;
+      border-radius: 10px;
+      color: #fff;
+      background: linear-gradient(135deg, #2563eb, #0891b2);
+      font-size: 17px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .login-meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 18px;
+      color: #91a6c1;
+      font-size: 12px;
+    }
+    .login-meta span {
+      min-height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(148, 163, 184, .14);
+      border-radius: 999px;
+      background: rgba(15, 23, 42, .48);
+    }
+    @media (max-width: 1020px) {
+      body { overflow: auto; }
+      .screen {
+        grid-template-columns: 1fr;
+        padding: 36px 22px;
+      }
+      h1 { font-size: 44px; }
+      .command-layer { height: 300px; }
+      .login { max-width: 520px; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="screen">
+    <section class="hero">
+      <div class="brand">
+        <img src="../logo.png" alt="OpsCore logo" />
+        <span>OpsCore</span>
+      </div>
+      <h1>智能运维中枢指挥平台</h1>
+      <p class="lead">连接资产、可观测、事件、变更、知识与自动化能力，构建以业务连续性为核心、以 AI 辅助决策和受控自动化为增强的统一运维控制平面。</p>
+      <div class="command-layer" aria-label="智能运维中枢示意">
+        <div class="orbit"></div>
+        <div class="axis"></div>
+        <div class="core">
+          <small>OpsCore</small>
+          <strong>智能运维中枢</strong>
+        </div>
+        <span class="node data">统一运维数据底座</span>
+        <span class="node continuity">业务连续性保障</span>
+        <span class="node automation">自动化处置闭环</span>
+        <span class="node governance">治理与审计</span>
+        <span class="node ai">AI 决策中枢</span>
+        <div class="flow">
+          <span>健康</span><i></i><span>影响</span><i></i><span>根因</span><i></i><span>处置</span><i></i><span>复盘</span>
+        </div>
+      </div>
+    </section>
+
+    <form class="login">
+      <small>账号密码登录</small>
+      <h2>登录 OpsCore</h2>
+      <p>使用一期账号密码体系进入控制台。</p>
+      <label>账号<input autocomplete="username" /></label>
+      <label>密码<input type="password" autocomplete="current-password" /></label>
+      <button type="button">进入控制台</button>
+      <div class="login-meta">
+        <span>凭据加密</span>
+        <span>RBAC</span>
+        <span>审计预留</span>
+      </div>
+    </form>
+  </main>
+</body>
+</html>

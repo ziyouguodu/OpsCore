@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 事件管理高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; letter-spacing: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .level-strip {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #ef4444 0 20%, #f59e0b 20% 46%, #2563eb 46% 74%, #12b981 74%);
+    }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(370px, .84fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .workspace-title { display: grid; gap: 5px; margin-bottom: 12px; }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0 12px;
+      border-top: 1px solid #edf0f5;
+    }
+    .view-switch {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 9px;
+      background: #f1f5fb;
+      border: 1px solid #dbe3ef;
+      white-space: nowrap;
+    }
+    .tab { min-height: 30px; border-radius: 7px; padding: 0 10px; color: #475467; background: transparent; border: 1px solid transparent; }
+    .tab.active { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .module-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    .advanced-link {
+      color: #2563eb;
+      background: transparent;
+      border: 0;
+      padding: 0 6px;
+      min-height: 34px;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .pill.info { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; }
+    .pill.gray { color: #667085; background: #f2f4f7; border-color: #e4e7ec; }
+    .severity-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .severity-card {
+      padding: 12px;
+      border-radius: 9px;
+      border: 1px solid #d8e0ec;
+      background: #fff;
+      display: grid;
+      gap: 7px;
+      box-shadow: inset 3px 0 0 #d8e0ec;
+    }
+    .severity-card.p1 { border-color: #fecaca; background: #fff7f7; box-shadow: inset 3px 0 0 #ef4444; }
+    .severity-card.p2 { border-color: #fed7aa; background: #fffaf2; box-shadow: inset 3px 0 0 #f59e0b; }
+    .severity-card.p3 { border-color: #bfdbfe; background: #f5f9ff; box-shadow: inset 3px 0 0 #2563eb; }
+    .severity-card.p4 { border-color: #bbf7d0; background: #f5fff8; box-shadow: inset 3px 0 0 #12b981; }
+    .severity-card strong { font-size: 22px; }
+    .severity-card span { color: #667085; font-size: 12px; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .detail-grid { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .asset-list { display: grid; gap: 8px; }
+    .asset-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 9px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+      font-size: 13px;
+    }
+    .timeline { display: grid; gap: 10px; }
+    .timeline-item { display: grid; grid-template-columns: 68px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size { width: 104px; min-width: 104px; flex: 0 0 104px; }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .checks { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .kpis, .severity-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .toolbar, .list-footer { align-items: stretch; flex-direction: column; }
+      .hero-actions, .module-actions, .pagination { justify-content: flex-start; margin-left: 0; }
+      .query-bar, .kpis, .severity-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <h1>事件管理高保真确认</h1>
+        <p>作为协同与事件响应下的二级页面，聚焦 P1-P4 等级、事件状态流、影响范围、关联资产、War Room 与关闭复盘。</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn"><span class="ico">⇩</span>导出事件</button>
+        <button class="btn ghost"><span class="ico">◎</span>进入 War Room</button>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="事件管理指标">
+      <article class="kpi">
+        <span>活跃事件</span>
+        <strong>4</strong>
+        <em>P1 1，P2 1，P3 1，P4 1</em>
+        <div class="level-strip"></div>
+      </article>
+      <article class="kpi">
+        <span>P1 响应中</span>
+        <strong>1</strong>
+        <em>支付服务异常峰值</em>
+        <small>主值已受理</small>
+      </article>
+      <article class="kpi">
+        <span>平均响应</span>
+        <strong>18m</strong>
+        <em>近 7 日事件响应</em>
+        <small>较昨日 -6m</small>
+      </article>
+      <article class="kpi">
+        <span>待关闭</span>
+        <strong>3</strong>
+        <em>恢复后待确认关闭</em>
+        <div class="mini-meter warn"><i style="width:38%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>本周复盘</span>
+        <strong>5</strong>
+        <em>P1/P2 事件需复盘</em>
+        <div class="mini-meter"><i style="width:66%"></i></div>
+      </article>
+    </section>
+
+    <main class="layout">
+      <section>
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>事件等级分布</h2>
+            <p>一期确认 P1-P4 四级事件，等级影响响应优先级、通知范围、是否需要复盘。</p>
+          </div>
+          <div class="severity-grid">
+            <div class="severity-card p1"><span>P1 高危</span><strong>1</strong><p>核心业务中断或重大影响</p></div>
+            <div class="severity-card p2"><span>P2 重要</span><strong>1</strong><p>业务降级或局部不可用</p></div>
+            <div class="severity-card p3"><span>P3 一般</span><strong>1</strong><p>有影响但可绕行</p></div>
+            <div class="severity-card p4"><span>P4 观察</span><strong>1</strong><p>风险观察或轻微异常</p></div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>事件列表</h2>
+            <p>默认展示未关闭事件，点击事件后在右侧查看影响范围、关联资产、时间线和处理动作。</p>
+          </div>
+          <div class="toolbar">
+            <div class="view-switch" aria-label="事件视图切换">
+              <button class="tab active">未关闭</button>
+              <button class="tab">P1/P2</button>
+              <button class="tab">待恢复</button>
+              <button class="tab">待复盘</button>
+            </div>
+            <div class="module-actions">
+              <button class="btn"><span class="ico">◎</span>War Room</button>
+              <button class="btn primary"><span class="ico">＋</span>新建事件</button>
+            </div>
+          </div>
+
+          <div class="query-bar">
+            <input class="keyword" value="支付" aria-label="关键词" />
+            <select class="select-compact" aria-label="等级">
+              <option>全部等级</option>
+              <option>P1</option>
+              <option>P2</option>
+              <option>P3</option>
+              <option>P4</option>
+            </select>
+            <select class="select-compact" aria-label="状态">
+              <option>全部状态</option>
+              <option>新建</option>
+              <option>处理中</option>
+              <option>已恢复</option>
+              <option>已关闭</option>
+            </select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+            <button class="advanced-link">高级搜索</button>
+          </div>
+          <div class="chips">
+            <span class="chip">高级搜索：负责人、所属业务、影响范围、关联资产、时间范围</span>
+            <span class="chip">状态：未关闭</span>
+            <span class="chip">业务：支付服务</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>事件编号</th>
+                  <th>标题</th>
+                  <th>等级</th>
+                  <th>状态</th>
+                  <th>负责人</th>
+                  <th>影响范围</th>
+                  <th>关联资产</th>
+                  <th>开始时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td>INC-202606-0001</td>
+                  <td>支付服务异常峰值，需要跨团队协同</td>
+                  <td><span class="pill danger">P1</span></td>
+                  <td><span class="pill warn">处理中</span></td>
+                  <td>李明 / 陈浩</td>
+                  <td>支付服务，核心交易链路</td>
+                  <td>3 台主机，1 个数据库</td>
+                  <td>09:12</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">跟进</button>
+                      <button class="action">War Room</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>INC-202606-0002</td>
+                  <td>网关 Nginx 证书有效期异常提醒</td>
+                  <td><span class="pill warn">P2</span></td>
+                  <td><span class="pill info">新建</span></td>
+                  <td>赵晨</td>
+                  <td>网关访问入口</td>
+                  <td>MW-202606-0003</td>
+                  <td>10:30</td>
+                  <td><button class="action primary">受理</button></td>
+                </tr>
+                <tr>
+                  <td>INC-202606-0003</td>
+                  <td>Redis 缓存命中率下降观察</td>
+                  <td><span class="pill info">P3</span></td>
+                  <td><span class="pill warn">处理中</span></td>
+                  <td>刘洋</td>
+                  <td>支付缓存集群</td>
+                  <td>MW-202606-0002</td>
+                  <td>昨天 18:40</td>
+                  <td><button class="action primary">跟进</button></td>
+                </tr>
+                <tr>
+                  <td>INC-202606-0004</td>
+                  <td>测试环境主机磁盘容量提醒</td>
+                  <td><span class="pill success">P4</span></td>
+                  <td><span class="pill success">已恢复</span></td>
+                  <td>王敏</td>
+                  <td>研发测试环境</td>
+                  <td>ASSET-202606-0018</td>
+                  <td>昨天 16:10</td>
+                  <td><button class="action">关闭</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="list-footer">
+            <span class="page-info">共 64 条事件，默认展示未关闭记录</span>
+            <div class="pagination">
+              <select class="page-size" aria-label="每页显示">
+                <option>20 条/页</option>
+                <option>50 条/页</option>
+              </select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">2</button>
+              <button class="page-btn">3</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="drawer" aria-label="当前事件详情">
+        <div class="drawer-head">
+          <div>
+            <h3>INC-202606-0001</h3>
+            <p>支付服务异常峰值，需要跨团队协同</p>
+          </div>
+          <span class="pill danger">P1</span>
+        </div>
+
+        <dl class="detail-grid">
+          <dt>当前状态</dt><dd><span class="pill warn">处理中</span></dd>
+          <dt>影响范围</dt><dd>核心交易链路，支付服务响应异常</dd>
+          <dt>负责人</dt><dd>运维工程师：李明；研发：陈浩</dd>
+          <dt>当前值班</dt><dd>主值 李明，备值 赵晨</dd>
+          <dt>响应要求</dt><dd>P1 立即响应，恢复后必须关闭并进入复盘</dd>
+          <dt>War Room</dt><dd>已开启，3 人在线协同</dd>
+        </dl>
+
+        <div class="drawer-section">
+          <h4>关联资产</h4>
+          <div class="asset-list">
+            <div class="asset-row"><span>ASSET-202606-0001 / 支付应用主机</span><span class="pill info">应用</span></div>
+            <div class="asset-row"><span>ASSET-202606-0004 / 支付应用主机</span><span class="pill info">应用</span></div>
+            <div class="asset-row"><span>MW-202606-0001 / PostgreSQL 主库</span><span class="pill warn">数据库</span></div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>事件状态流</h4>
+          <div class="mini-flow">
+            <div class="mini-step"><b>1</b><span>新建：记录事件等级、影响范围和负责人</span><span class="pill success">完成</span></div>
+            <div class="mini-step"><b>2</b><span>处理中：拉起值班和相关负责人协同</span><span class="pill warn">当前</span></div>
+            <div class="mini-step"><b>3</b><span>已恢复：确认业务恢复并补充处理结论</span><span class="pill gray">未开始</span></div>
+            <div class="mini-step"><b>4</b><span>已关闭：记录关闭原因，P1/P2 进入复盘</span><span class="pill gray">未开始</span></div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>响应时间线</h4>
+          <div class="timeline">
+            <div class="timeline-item"><span>09:12</span><span>监控告警转入事件，等级确认为 P1</span><span class="pill info">新建</span></div>
+            <div class="timeline-item"><span>09:16</span><span>主值受理并关联支付服务资产</span><span class="pill warn">处理中</span></div>
+            <div class="timeline-item"><span>09:24</span><span>研发加入 War Room，开始定位慢查询</span><span class="pill info">协同</span></div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>可执行操作</h4>
+          <div class="row-actions">
+            <button class="btn primary"><span class="ico">↗</span>更新进展</button>
+            <button class="btn ghost"><span class="ico">◎</span>进入 War Room</button>
+            <button class="btn"><span class="ico">✓</span>标记恢复</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>一期范围</h3>
+        <ul>
+          <li>事件支持 P1、P2、P3、P4 四级等级。</li>
+          <li>事件可关联资产、实例、业务和值班人员。</li>
+          <li>War Room 一期作为事件协同入口。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>状态流转</h3>
+        <ul>
+          <li>固定状态：新建、处理中、已恢复、已关闭。</li>
+          <li>关闭前需要补充处理结论和恢复时间。</li>
+          <li>P1/P2 关闭后进入复盘入口。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>权限说明</h3>
+        <ul>
+          <li>超级管理员可管理所有事件。</li>
+          <li>运维工程师可查看协同事件并更新进展。</li>
+          <li>只读角色仅可查看事件列表和详情。</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

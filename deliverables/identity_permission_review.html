@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 身份与权限高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; letter-spacing: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.disabled { color: #98a2b3; background: #f2f4f7; border-color: #e4e7ec; }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, .82fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .workspace-title { display: grid; gap: 5px; margin-bottom: 12px; }
+    .role-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .role-card {
+      border-radius: 10px;
+      padding: 14px;
+      border: 1px solid #d8e0ec;
+      background: #fff;
+      display: grid;
+      gap: 10px;
+    }
+    .role-card.admin {
+      border-color: #b8d0ff;
+      background: linear-gradient(135deg, #e8f0ff 0%, #fff 100%);
+      box-shadow: inset 4px 0 0 #2563eb;
+    }
+    .role-card.ops {
+      border-color: #99f6e4;
+      background: linear-gradient(135deg, #dcfaf5 0%, #fff 100%);
+      box-shadow: inset 4px 0 0 #14b8a6;
+    }
+    .role-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .role-title { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 10px; align-items: center; }
+    .role-icon {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      color: #172033;
+      background: #fff;
+      border: 1px solid #cfd8e6;
+    }
+    .role-icon svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+    .role-title strong { font-size: 17px; }
+    .role-title span { color: #667085; font-size: 12px; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.info { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; }
+    .pill.gray { color: #667085; background: #f2f4f7; border-color: #e4e7ec; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .matrix td, .matrix th { text-align: center; }
+    .matrix td:first-child, .matrix th:first-child { text-align: left; }
+    .mark {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      font-weight: 800;
+      margin: 0 auto;
+    }
+    .mark.yes { color: #087443; background: #ecfdf3; border: 1px solid #abefc6; }
+    .mark.part { color: #b54708; background: #fffaeb; border: 1px solid #fedf89; }
+    .mark.no { color: #667085; background: #f2f4f7; border: 1px solid #e4e7ec; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .detail-grid { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .policy-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 9px;
+      border: 1px solid #fedf89;
+      background: linear-gradient(135deg, #fffaeb 0%, #fff 100%);
+      margin-bottom: 12px;
+    }
+    .policy-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .login-panel {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .login-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 9px;
+      border: 1px solid #d8e0ec;
+      background: #fff;
+    }
+    .login-card.ready { border-color: #abefc6; background: #f5fffa; }
+    .login-card.gray { color: #98a2b3; background: #f6f7f9; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size { width: 104px; min-width: 104px; flex: 0 0 104px; }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .role-strip, .checks, .login-panel { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .kpis { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .list-footer { align-items: stretch; flex-direction: column; }
+      .hero-actions, .pagination { justify-content: flex-start; margin-left: 0; }
+      .query-bar, .kpis { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <h1>身份与权限高保真确认</h1>
+        <p>一期先落地账号密码登录、超级管理员、运维工程师与最小权限矩阵；其他角色、SSO/LDAP 保留为灰度占位。</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn"><span class="ico">⇩</span>导出权限表</button>
+        <button class="btn ghost"><span class="ico">◎</span>初始化管理员</button>
+        <button class="btn primary"><span class="ico">＋</span>新增用户</button>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="身份与权限指标">
+      <article class="kpi">
+        <span>启用用户</span>
+        <strong>42</strong>
+        <em>本地账号密码登录</em>
+        <small>SSO/LDAP 灰度</small>
+      </article>
+      <article class="kpi">
+        <span>一期核心角色</span>
+        <strong>2</strong>
+        <em>超级管理员 / 运维工程师</em>
+        <div class="mini-meter"><i style="width:62%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>待初始化密码</span>
+        <strong>1</strong>
+        <em>默认超级管理员需首次修改</em>
+        <div class="mini-meter warn"><i style="width:28%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>敏感凭据策略</span>
+        <strong>已启用</strong>
+        <em>查看前输入校验密码</em>
+        <small>不在列表页明文展示</small>
+      </article>
+      <article class="kpi">
+        <span>权限变更审计</span>
+        <strong>12</strong>
+        <em>近 7 日角色与权限调整</em>
+        <small>保留操作人与时间</small>
+      </article>
+    </section>
+
+    <main class="layout">
+      <section>
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>一期角色策略</h2>
+            <p>先把两个核心角色做实：超级管理员负责全局配置，运维工程师负责资产维护、任务处理与事件跟进。</p>
+          </div>
+          <div class="role-strip">
+            <div class="role-card admin">
+              <div class="role-head">
+                <div class="role-title">
+                  <span class="role-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z"></path>
+                      <path d="M9 12l2 2 4-5"></path>
+                    </svg>
+                  </span>
+                  <div>
+                    <strong>超级管理员</strong>
+                    <span>super_admin</span>
+                  </div>
+                </div>
+                <span class="pill info">全部权限</span>
+              </div>
+              <p>负责用户、角色、菜单、资源、凭据查看策略、初始化密码与系统配置。</p>
+            </div>
+            <div class="role-card ops">
+              <div class="role-head">
+                <div class="role-title">
+                  <span class="role-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M14.7 6.3a4 4 0 0 0-5 5L4 17l3 3 5.7-5.7a4 4 0 0 0 5-5l-2.6 2.6-3-3 2.6-2.6z"></path>
+                      <path d="M5.5 18.5l2 2"></path>
+                    </svg>
+                  </span>
+                  <div>
+                    <strong>运维工程师</strong>
+                    <span>ops_engineer</span>
+                  </div>
+                </div>
+                <span class="pill success">一期启用</span>
+              </div>
+              <p>可维护资产台账配置，查看值班情况，处理任务，并跟进事件；敏感凭据查看需额外校验。</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>用户与角色</h2>
+            <p>用户列表默认展示账号、角色、状态和最近登录；新增用户时分配一期核心角色，灰度角色暂不开放配置。</p>
+          </div>
+          <div class="query-bar">
+            <input class="keyword" value="ops" aria-label="关键词" />
+            <select class="select-compact" aria-label="角色">
+              <option>全部角色</option>
+              <option>超级管理员</option>
+              <option>运维工程师</option>
+            </select>
+            <select class="select-compact" aria-label="状态">
+              <option>全部状态</option>
+              <option>启用</option>
+              <option>停用</option>
+              <option>待初始化</option>
+            </select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+          </div>
+          <div class="chips">
+            <span class="chip">登录方式：账号密码</span>
+            <span class="chip">默认管理员：首次登录修改初始化密码</span>
+            <span class="chip">SSO/LDAP：灰度占位</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>账号</th>
+                  <th>姓名</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>最近登录</th>
+                  <th>密码状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td>admin</td>
+                  <td>系统超级管理员</td>
+                  <td><span class="pill info">超级管理员</span></td>
+                  <td><span class="pill success">启用</span></td>
+                  <td>2026-06-06 09:32</td>
+                  <td><span class="pill warn">需初始化</span></td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">配置</button>
+                      <button class="action">重置密码</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>ops.li</td>
+                  <td>李明</td>
+                  <td><span class="pill success">运维工程师</span></td>
+                  <td><span class="pill success">启用</span></td>
+                  <td>2026-06-06 08:55</td>
+                  <td><span class="pill success">正常</span></td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">编辑</button>
+                      <button class="action">停用</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>ops.zhao</td>
+                  <td>赵晨</td>
+                  <td><span class="pill success">运维工程师</span></td>
+                  <td><span class="pill success">启用</span></td>
+                  <td>2026-06-05 19:20</td>
+                  <td><span class="pill success">正常</span></td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">编辑</button>
+                      <button class="action">停用</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>dev.chen</td>
+                  <td>陈浩</td>
+                  <td><span class="pill gray">研发（灰度）</span></td>
+                  <td><span class="pill gray">未启用</span></td>
+                  <td>-</td>
+                  <td><span class="pill gray">待开放</span></td>
+                  <td><button class="action">查看</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-footer">
+            <span class="page-info">共 42 个用户，灰度角色只展示不开放授权</span>
+            <div class="pagination">
+              <select class="page-size" aria-label="每页显示">
+                <option>20 条/页</option>
+                <option>50 条/页</option>
+              </select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">2</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>权限矩阵</h2>
+            <p>一期只配置必要权限，其他角色先不参与权限分配，避免首版权限模型过重。</p>
+          </div>
+          <div class="table-wrap">
+            <table class="matrix">
+              <thead>
+                <tr>
+                  <th>功能范围</th>
+                  <th>超级管理员</th>
+                  <th>运维工程师</th>
+                  <th>灰度角色</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>用户与角色管理</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>仅超级管理员配置账号、角色和菜单</td>
+                </tr>
+                <tr>
+                  <td>资产台账（CMDB）</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark part">配</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>运维工程师可查看与配置修改</td>
+                </tr>
+                <tr>
+                  <td>中间件与数据库</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark part">配</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>运维工程师维护实例基础信息</td>
+                </tr>
+                <tr>
+                  <td>资产登录信息查看</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark part">验</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>需输入超级管理员设置的校验密码</td>
+                </tr>
+                <tr>
+                  <td>值班情况</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark part">读</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>运维工程师可查看值班安排</td>
+                </tr>
+                <tr>
+                  <td>任务处理</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>运维工程师可处理本人或分派任务</td>
+                </tr>
+                <tr>
+                  <td>事件跟进</td>
+                  <td><span class="mark yes">✓</span></td>
+                  <td><span class="mark part">跟</span></td>
+                  <td><span class="mark no">-</span></td>
+                  <td>运维工程师可查看协同事件并更新进展</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <aside class="drawer" aria-label="当前用户详情">
+        <div class="drawer-head">
+          <div>
+            <h3>admin</h3>
+            <p>系统超级管理员，默认初始化账号</p>
+          </div>
+          <span class="pill warn">需初始化</span>
+        </div>
+
+        <dl class="detail-grid">
+          <dt>角色</dt><dd>超级管理员</dd>
+          <dt>登录方式</dt><dd>账号密码</dd>
+          <dt>账号状态</dt><dd><span class="pill success">启用</span></dd>
+          <dt>密码状态</dt><dd>首次登录必须修改初始化密码</dd>
+          <dt>最近登录</dt><dd>2026-06-06 09:32</dd>
+          <dt>权限范围</dt><dd>用户、角色、资产、协同事件、系统策略全部权限</dd>
+        </dl>
+
+        <div class="policy-card">
+          <div class="policy-head">
+            <h4>凭据查看校验</h4>
+            <span class="pill warn">敏感策略</span>
+          </div>
+          <p>资产与实例的账号密码单独加密存储，列表页不显示。查看时必须输入由超级管理员设置的校验密码，并记录审计日志。</p>
+        </div>
+
+        <div class="drawer-section">
+          <h4>初始化流程</h4>
+          <div class="mini-flow">
+            <div class="mini-step">
+              <b>1</b>
+              <span>系统启动后创建默认超级管理员账号</span>
+              <span class="pill success">自动</span>
+            </div>
+            <div class="mini-step">
+              <b>2</b>
+              <span>首次登录输入初始化密码并强制修改</span>
+              <span class="pill warn">必做</span>
+            </div>
+            <div class="mini-step">
+              <b>3</b>
+              <span>设置资产登录信息查看校验密码</span>
+              <span class="pill info">建议</span>
+            </div>
+            <div class="mini-step">
+              <b>4</b>
+              <span>创建运维工程师账号并授予一期权限</span>
+              <span class="pill info">配置</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>登录与认证方式</h4>
+          <div class="login-panel">
+            <div class="login-card ready">
+              <span class="pill success">一期</span>
+              <strong>账号密码</strong>
+              <p>本地认证，支持初始化密码与重置密码。</p>
+            </div>
+            <div class="login-card gray">
+              <span class="pill gray">灰度</span>
+              <strong>SSO</strong>
+              <p>保留入口，后续对接统一身份。</p>
+            </div>
+            <div class="login-card gray">
+              <span class="pill gray">灰度</span>
+              <strong>LDAP</strong>
+              <p>保留配置项，暂不进入一期。</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>一期必须确认</h3>
+        <ul>
+          <li>是否只启用超级管理员和运维工程师两个角色。</li>
+          <li>运维工程师对 CMDB 与实例信息是否允许配置修改。</li>
+          <li>任务处理与事件跟进是否允许运维工程师执行。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>敏感信息策略</h3>
+        <ul>
+          <li>资产登录信息和实例账号密码不在列表页显示。</li>
+          <li>查看前输入超级管理员设置的校验密码。</li>
+          <li>所有查看行为进入权限变更与敏感访问审计。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>灰度占位</h3>
+        <ul>
+          <li>管理人员、SRE、研发、值班人员、只读访客先只保留角色名称。</li>
+          <li>SSO/LDAP 仅展示入口，后续再对接企业身份源。</li>
+          <li>审批流与更细粒度资源权限后续扩展。</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

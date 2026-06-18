@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 中间件与数据库高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; }
+    h2 { font-size: 18px; letter-spacing: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; font-size: 13px; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; letter-spacing: 0; }
+    .hero-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; white-space: nowrap; }
+    .secondary-actions { display: flex; gap: 8px; align-items: center; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 32px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .btn.disabled {
+      color: #98a2b3;
+      background: #f2f4f7;
+      border-color: #e4e7ec;
+    }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .type-strip {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #2563eb 0 21%, #12b981 21% 35%, #f59e0b 35% 43%, #0ea5e9 43% 55%, #7c3aed 55% 66%, #ef4444 66% 76%, #14b8a6 76% 84%, #64748b 84% 91%, #a855f7 91% 97%, #84cc16 97%);
+    }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.48fr) minmax(350px, .78fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .section-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .workspace-head { margin-bottom: 10px; }
+    .workspace-title { display: grid; gap: 5px; }
+    .list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0 12px;
+      border-top: 1px solid #edf0f5;
+    }
+    .module-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .view-switch {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 9px;
+      background: #f1f5fb;
+      border: 1px solid #dbe3ef;
+      white-space: nowrap;
+    }
+    .tab { min-height: 30px; border-radius: 7px; padding: 0 10px; color: #475467; background: transparent; border: 1px solid transparent; }
+    .tab.active { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    .advanced-link {
+      color: #2563eb;
+      background: transparent;
+      border: 0;
+      padding: 0 6px;
+      min-height: 32px;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .footer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 280px; }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size {
+      width: 104px;
+      min-width: 104px;
+      flex: 0 0 104px;
+    }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .action.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .asset-name { display: grid; gap: 4px; }
+    .detail-grid { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .credential {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .credential-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .relation-card {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .relation-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .danger-zone { margin-left: auto; }
+    .topology { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; align-items: center; min-height: 150px; }
+    .node {
+      display: grid;
+      place-items: center;
+      min-height: 86px;
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      background: #f8fbff;
+      text-align: center;
+      font-size: 13px;
+    }
+    .node.primary { color: #174ea6; background: #e8f0ff; border-color: #b8d0ff; font-weight: 700; }
+    .form-preview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .field { display: grid; gap: 5px; }
+    .field label { color: #667085; font-size: 12px; }
+    .field.wide { grid-column: span 2; }
+    .field.full { grid-column: 1 / -1; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .checks { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .form-preview, .kpis { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .section-title, .drawer-head, .workspace-head { display: grid; grid-template-columns: 1fr; }
+      .hero-actions, .secondary-actions { justify-content: flex-start; flex-wrap: wrap; white-space: normal; }
+      .list-toolbar { display: grid; justify-content: stretch; }
+      .module-actions { justify-content: flex-start; }
+      .query-bar, .form-preview, .kpis, .topology { grid-template-columns: 1fr; }
+      .list-footer { display: grid; }
+      .pagination { margin-left: 0; overflow-x: auto; }
+      .danger-zone { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>中间件与数据库高保真确认</h1>
+        <p>一期聚焦 MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx、ElasticSearch、Nacos、RocketMQ、MinIO 的实例台账、网络区域、可选资产关联和账号凭据管理；远程连接能力后续灰度。</p>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="中间件与数据库实例概览">
+      <article class="kpi">
+        <span>实例总量</span>
+        <strong>612</strong>
+        <em>数据库 202 / 中间件 410</em>
+        <small>一期纳入 10 类实例</small>
+      </article>
+      <article class="kpi">
+        <span>类型分布</span>
+        <strong>MySQL 132</strong>
+        <em>Redis 84 / Nginx 71 / ElasticSearch 64</em>
+        <div class="type-strip"></div>
+      </article>
+      <article class="kpi">
+        <span>已关联资产</span>
+        <strong>412</strong>
+        <em>200 个待补关联，不影响实例入库</em>
+        <div class="mini-meter"><i style="width:67%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>异常实例</span>
+        <strong>9</strong>
+        <em>不可用 2 / 告警 7</em>
+        <div class="mini-meter warn"><i style="width:16%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>凭据托管</span>
+        <strong>178</strong>
+        <em>账号密码密文存储</em>
+        <small>查看需校验超级管理员设置的密码</small>
+      </article>
+    </section>
+
+    <section class="layout">
+      <div>
+        <section class="panel">
+          <div class="workspace-head">
+            <div class="workspace-title">
+              <h2>实例管理</h2>
+              <p>管理数据库、中间件与组件实例；关联 CMDB 资产为选填，可后续补关联以完善部署位置和影响范围。</p>
+            </div>
+          </div>
+          <div class="list-toolbar">
+            <div class="view-switch" aria-label="实例视图切换">
+              <button class="tab active"><span class="ico">☷</span>实例列表</button>
+              <button class="tab"><span class="ico">⌁</span>关联拓扑</button>
+            </div>
+            <div class="module-actions">
+              <button class="btn primary"><span class="ico">+</span>新增实例</button>
+            </div>
+          </div>
+
+          <div class="query-bar">
+            <input class="keyword" placeholder="搜索实例名称、访问地址、所属业务、网络区域、关联资产" value="支付" />
+            <select class="select-compact"><option>全部类型</option><option>MySQL</option><option>Redis</option><option>Kafka</option><option>PostgreSQL</option><option>达梦</option><option>Nginx</option><option>ElasticSearch</option><option>Nacos</option><option>RocketMQ</option><option>MinIO</option></select>
+            <select class="select-compact"><option>全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+            <button class="advanced-link"><span class="ico">⌄</span>高级搜索</button>
+          </div>
+          <div class="chips">
+            <span class="chip">所属业务：支付服务</span>
+            <span class="chip">环境：生产</span>
+            <span class="chip">显示列：实例运维视图</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input type="checkbox" /></th>
+                  <th>实例编号</th>
+                  <th>类型</th>
+                  <th>实例名称</th>
+                  <th>环境</th>
+                  <th>网络区域</th>
+                  <th>访问地址</th>
+                  <th>端口</th>
+                  <th>所属业务</th>
+                  <th>关联资产</th>
+                  <th>版本</th>
+                  <th>状态</th>
+                  <th>负责人</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td><input type="checkbox" checked /></td>
+                  <td>MW-202606-0001</td>
+                  <td>MySQL</td>
+                  <td>pay-mysql-primary</td>
+                  <td>生产</td>
+                  <td>prod-db</td>
+                  <td>10.20.3.16</td>
+                  <td>3306</td>
+                  <td>支付服务</td>
+                  <td>ASSET-202606-0002</td>
+                  <td>8.0.36</td>
+                  <td><span class="pill success">运行中</span></td>
+                  <td>DBA</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action"><span class="ico">⌁</span>关联</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" /></td>
+                  <td>MW-202606-0002</td>
+                  <td>Redis</td>
+                  <td>pay-cache-cluster</td>
+                  <td>生产</td>
+                  <td>prod-cache</td>
+                  <td>10.20.4.18</td>
+                  <td>6379</td>
+                  <td>支付服务</td>
+                  <td>ASSET-202606-0004</td>
+                  <td>7.2</td>
+                  <td><span class="pill warn">维护中</span></td>
+                  <td>运维工程师</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action"><span class="ico">⌁</span>关联</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" /></td>
+                  <td>MW-202606-0003</td>
+                  <td>Nginx</td>
+                  <td>gateway-nginx</td>
+                  <td>生产</td>
+                  <td>dmz</td>
+                  <td>10.10.1.10</td>
+                  <td>443</td>
+                  <td>网关</td>
+                  <td>ASSET-202606-0003</td>
+                  <td>1.24</td>
+                  <td><span class="pill success">运行中</span></td>
+                  <td>运维工程师</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action"><span class="ico">⌁</span>关联</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-footer">
+            <div class="footer-actions">
+              <button class="btn"><span class="ico">↥</span>导入</button>
+              <button class="btn"><span class="ico">↧</span>导出</button>
+              <span class="page-info">已选 1 个实例，导出按钮仅在选中实例后显示</span>
+            </div>
+            <div class="pagination">
+              <span class="page-info">共 612 条，每页显示：</span>
+              <select class="select-compact page-size"><option>20 条/页</option><option>50 条/页</option><option>100 条/页</option></select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">2</button>
+              <button class="page-btn">3</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>新增/编辑实例表单</h2>
+              <p>字段按“基础信息、访问信息、部署归属、账号凭据”分组。实例编号自动生成；类型、名称、环境、网络区域、访问地址、端口、所属业务、状态、负责人为必填项，关联资产可后续补充。</p>
+            </div>
+            <button class="btn primary"><span class="ico">✓</span>保存实例</button>
+          </div>
+          <div class="form-preview">
+            <div class="field"><label>实例编号（自动生成）</label><input value="MW-202606-0001" readonly /></div>
+            <div class="field"><label>类型 *</label><select><option>MySQL</option><option>Redis</option><option>Kafka</option><option>PostgreSQL</option><option>达梦</option><option>Nginx</option><option>ElasticSearch</option><option>Nacos</option><option>RocketMQ</option><option>MinIO</option></select></div>
+            <div class="field"><label>实例名称 *</label><input value="pay-mysql-primary" /></div>
+            <div class="field"><label>环境 *</label><select><option>生产</option><option>仿真</option><option>研发</option></select></div>
+            <div class="field"><label>网络区域 *</label><input value="prod-db" /></div>
+            <div class="field"><label>访问地址 *</label><input value="10.20.3.16" /></div>
+            <div class="field"><label>端口 *</label><input value="3306" /></div>
+            <div class="field"><label>版本</label><input value="8.0.36" /></div>
+            <div class="field"><label>部署模式</label><select><option>主从</option><option>集群</option><option>单实例</option><option>代理</option></select></div>
+            <div class="field"><label>所属业务 *</label><input value="支付服务" /></div>
+            <div class="field"><label>关联资产（选填）</label><input value="ASSET-202606-0002" /></div>
+            <div class="field"><label>状态 *</label><select><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select></div>
+            <div class="field"><label>负责人 *</label><input value="DBA" /></div>
+            <div class="field full"><label>部署说明</label><input value="支付核心数据库主库，关联订单与支付流水服务" /></div>
+            <div class="field wide"><label>登录账号（新增/编辑时明文录入）</label><input value="pay_dba" /></div>
+            <div class="field wide"><label>登录密码（新增/编辑时明文录入，保存后密文存储）</label><input value="DbPass-******" /></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>关联拓扑预留</h2>
+              <p>一期用于说明实例与业务、资产、上下游实例的关系；远程连接、自动探活、连接串发现后续再进入灰度能力。</p>
+            </div>
+          </div>
+          <div class="topology">
+            <div class="node">业务<br>支付服务</div>
+            <div class="node">资产<br>ASSET-202606-0002</div>
+            <div class="node primary">实例<br>pay-mysql-primary</div>
+            <div class="node">关联实例<br>pay-cache-cluster</div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div class="asset-name">
+            <span class="pill">选中实例后显示</span>
+            <h3>pay-mysql-primary</h3>
+            <p>点击实例列表后显示 · MySQL · 支付服务 · 生产</p>
+          </div>
+          <span class="pill success">运行中</span>
+        </div>
+        <dl class="detail-grid">
+          <dt>实例编号</dt><dd>MW-202606-0001</dd>
+          <dt>类型 / 版本</dt><dd>MySQL / 8.0.36</dd>
+          <dt>网络区域</dt><dd>prod-db</dd>
+          <dt>访问地址</dt><dd>10.20.3.16:3306</dd>
+          <dt>部署模式</dt><dd>主从</dd>
+          <dt>所属业务</dt><dd>支付服务</dd>
+          <dt>关联资产</dt><dd>ASSET-202606-0002</dd>
+          <dt>负责人</dt><dd>DBA</dd>
+          <dt>部署说明</dt><dd>支付核心数据库主库，关联订单与支付流水服务</dd>
+        </dl>
+
+        <div class="drawer-section">
+          <h4>关联关系</h4>
+          <div class="relation-card">
+            <div class="relation-row">
+              <span>部署资产：ASSET-202606-0002</span>
+              <button class="action primary"><span class="ico">⌁</span>管理关联</button>
+            </div>
+            <div class="mini-flow">
+              <div class="mini-step"><b>1</b><span>支付服务</span><span class="pill">所属业务</span></div>
+              <div class="mini-step"><b>2</b><span>ASSET-202606-0002</span><span class="pill">选填关联</span></div>
+              <div class="mini-step"><b>3</b><span>pay-cache-cluster</span><span class="pill">关联实例</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>账号凭据</h4>
+          <div class="credential">
+            <p>账号密码保存后密文存储，默认隐藏。查看校验密码由超级管理员统一设置；新增/编辑实例录入时允许明文编辑，保存后不再明文展示。</p>
+            <div class="credential-row">
+              <input value="jdbc:mysql://10.20.3.16:3306/pay" aria-label="连接地址" />
+              <span class="pill warn">连接能力灰度</span>
+            </div>
+            <div class="credential-row">
+              <input value="pay_dba" aria-label="账号" />
+              <button class="btn"><span class="ico">⧉</span>复制账号</button>
+            </div>
+            <div class="credential-row">
+              <input type="password" value="********" aria-label="密码" />
+              <button class="btn primary"><span class="ico">◌</span>输入校验密码查看</button>
+            </div>
+            <button class="btn"><span class="ico">✓</span>保存凭据（加密）</button>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>当前实例操作</h4>
+          <div class="drawer-actions">
+            <button class="btn primary"><span class="ico">✎</span>编辑实例</button>
+            <button class="btn"><span class="ico">⌁</span>查看拓扑</button>
+            <button class="btn danger danger-zone"><span class="ico">×</span>删除实例</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>请确认列表与筛选</h3>
+        <ul>
+          <li>默认列：实例编号、类型、实例名称、环境、网络区域、访问地址、端口、所属业务、关联资产、版本、状态、负责人、操作。</li>
+          <li>常用筛选：关键词、类型、环境；网络区域、所属业务、状态、关联资产收进高级搜索。</li>
+          <li>列表行内提供详情、关联、删除三类动作；关联用于补充或调整 CMDB 资产关系。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>请确认字段与凭据</h3>
+        <ul>
+          <li>一期类型固定为 MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx、ElasticSearch、Nacos、RocketMQ、MinIO。</li>
+          <li>账号密码在新增/编辑时可明文录入；保存后密文存储，详情页默认隐藏。</li>
+          <li>查看校验密码由超级管理员统一设置；远程连接能力只做灰度提示，不进入一期交互。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>请确认边界</h3>
+        <ul>
+          <li>资产台账负责服务器和部署信息；本页负责中间件、数据库实例和连接凭据。</li>
+          <li>实例可以先不关联 CMDB 资产，后续通过关联动作补充部署资产，便于影响面分析。</li>
+          <li>拓扑视图只表达业务、资产、实例关系，不做自动发现和连接探测。</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

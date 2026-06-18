@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 资产台账（CMDB）高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; letter-spacing: 0; }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.48fr) minmax(350px, .78fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .section-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0 12px;
+      border-top: 1px solid #edf0f5;
+    }
+    .module-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tab { min-height: 30px; border-radius: 7px; padding: 0 10px; color: #475467; background: #f5f7fb; border: 1px solid #e1e7f0; }
+    .tab.active { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    .advanced-link {
+      color: #2563eb;
+      background: transparent;
+      border: 0;
+      padding: 0 6px;
+      min-height: 34px;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .footer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 280px; }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size {
+      width: 104px;
+      min-width: 104px;
+      flex: 0 0 104px;
+    }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .mini-meter.env i { background: linear-gradient(90deg, #2563eb 0 64%, #12b981 64% 89%, #f59e0b 89%); }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .action.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .asset-name { display: grid; gap: 4px; }
+    .detail-grid { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .credential {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .credential-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    .drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .danger-zone { margin-left: auto; }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .topology { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-items: center; min-height: 150px; }
+    .node {
+      display: grid;
+      place-items: center;
+      min-height: 86px;
+      border: 1px solid #d8e0ec;
+      border-radius: 8px;
+      background: #f8fbff;
+      text-align: center;
+      font-size: 13px;
+    }
+    .node.primary { color: #174ea6; background: #e8f0ff; border-color: #b8d0ff; font-weight: 700; }
+    .timeline { display: grid; gap: 10px; }
+    .timeline-item { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+    .form-preview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .field { display: grid; gap: 5px; }
+    .field label { color: #667085; font-size: 12px; }
+    .field.wide { grid-column: span 2; }
+    .field.full { grid-column: 1 / -1; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .checks { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .form-preview, .kpis { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .section-title, .drawer-head { display: grid; }
+      .list-toolbar { display: grid; justify-content: stretch; }
+      .module-actions { justify-content: flex-start; }
+      .query-bar, .form-preview, .kpis, .topology { grid-template-columns: 1fr; }
+      .list-footer { display: grid; }
+      .pagination { margin-left: 0; overflow-x: auto; }
+      .danger-zone { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>资产台账（CMDB）高保真确认</h1>
+        <p>一期聚焦服务器与基础资产。拓扑视图作为 CMDB 内部视图，不拆左侧三级菜单。</p>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="资产台账质量概览">
+      <article class="kpi">
+        <span>资产总量</span>
+        <strong>1,284</strong>
+        <em>物理机 426 / 虚拟机 858</em>
+        <small>当前 CMDB 台账记录</small>
+      </article>
+      <article class="kpi">
+        <span>已并网资产</span>
+        <strong>1,172</strong>
+        <em>待并网 84 / 未并网 28</em>
+        <div class="mini-meter"><i style="width:91%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>资料完整率</span>
+        <strong>97.2%</strong>
+        <em>36 台缺业务、网络区域或部署信息</em>
+        <div class="mini-meter"><i style="width:97%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>异常资产</span>
+        <strong>12</strong>
+        <em>故障 3，维护 9，需跟进</em>
+        <div class="mini-meter warn"><i style="width:18%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>环境分布</span>
+        <strong>生产 826</strong>
+        <em>仿真 318 / 研发 140</em>
+        <div class="mini-meter env"><i style="width:100%"></i></div>
+      </article>
+    </section>
+
+    <section class="layout">
+      <div>
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>资产工作区</h2>
+              <p>以列表为主，点击资产后在右侧显示详情；未选择资产时右侧详情隐藏，保证页面更清爽。</p>
+            </div>
+          </div>
+          <div class="list-toolbar">
+            <div class="tabs">
+              <button class="tab active"><span class="ico">☷</span>台账列表</button>
+              <button class="tab"><span class="ico">⌁</span>拓扑视图</button>
+            </div>
+            <div class="module-actions">
+              <button class="btn primary"><span class="ico">+</span>新增资产</button>
+            </div>
+          </div>
+
+          <div class="query-bar">
+            <input class="keyword" placeholder="搜索资产编号、IP、所属业务、部署信息" value="支付服务" />
+            <select class="select-compact"><option>全部类型</option><option>物理机</option><option>虚拟机</option></select>
+            <select class="select-compact"><option>全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+            <button class="advanced-link"><span class="ico">⌄</span>高级搜索</button>
+          </div>
+          <div class="chips">
+            <span class="chip">所属业务：支付服务</span>
+            <span class="chip">环境：生产</span>
+            <span class="chip">显示列：默认运维视图</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input type="checkbox" /></th>
+                  <th>资产编号</th>
+                  <th>类型</th>
+                  <th>环境</th>
+                  <th>网络区域</th>
+                  <th>IP</th>
+                  <th>配置规格</th>
+                  <th>所属业务</th>
+                  <th>部署信息</th>
+                  <th>状态</th>
+                  <th>负责人</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td><input type="checkbox" checked /></td>
+                  <td>ASSET-202606-0001</td>
+                  <td>物理机</td>
+                  <td>生产</td>
+                  <td>prod-app</td>
+                  <td>10.10.8.21</td>
+                  <td>16C / 64GB / 2TB SSD</td>
+                  <td>支付服务</td>
+                  <td>Docker Compose</td>
+                  <td><span class="pill success">运行中</span></td>
+                  <td>运维工程师</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" /></td>
+                  <td>ASSET-202606-0002</td>
+                  <td>虚拟机</td>
+                  <td>生产</td>
+                  <td>prod-db</td>
+                  <td>10.20.3.16</td>
+                  <td>32C / 128GB / 8TB NVMe</td>
+                  <td>订单中心</td>
+                  <td>裸机数据库服务</td>
+                  <td><span class="pill success">运行中</span></td>
+                  <td>DBA</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" /></td>
+                  <td>ASSET-202606-0003</td>
+                  <td>虚拟机</td>
+                  <td>仿真</td>
+                  <td>dmz</td>
+                  <td>10.10.1.10</td>
+                  <td>8C / 32GB / 500GB SSD</td>
+                  <td>网关</td>
+                  <td>Nginx 网关实例</td>
+                  <td><span class="pill warn">维护中</span></td>
+                  <td>运维工程师</td>
+                  <td><div class="row-actions"><button class="action primary"><span class="ico">⌕</span>详情</button><button class="action danger"><span class="ico">×</span>删除</button></div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-footer">
+            <div class="footer-actions">
+              <button class="btn"><span class="ico">↥</span>导入</button>
+              <button class="btn"><span class="ico">↧</span>导出</button>
+              <span class="page-info">已选 1 个资产，导出按钮仅在选中资产后显示</span>
+            </div>
+            <div class="pagination">
+              <span class="page-info">共 1,284 条，每页显示：</span>
+              <select class="select-compact page-size"><option>20 条/页</option><option>50 条/页</option><option>100 条/页</option></select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">2</button>
+              <button class="page-btn">3</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>新增/编辑资产表单</h2>
+              <p>字段按“基础信息、网络与系统、配置规格、部署归属、登录信息”分组。资产编号自动生成；除厂商、SN、物理位置、IPv6、主机名、所在宿主机、备注外，其余字段必填。</p>
+            </div>
+            <button class="btn primary"><span class="ico">✓</span>保存资产</button>
+          </div>
+          <div class="form-preview">
+            <div class="field"><label>资产编号（自动生成）</label><input value="ASSET-202606-0001" readonly /></div>
+            <div class="field"><label>类型 *</label><select><option>物理机</option><option>虚拟机</option></select></div>
+            <div class="field"><label>环境 *</label><select><option>生产</option><option>仿真</option><option>研发</option></select></div>
+            <div class="field"><label>并网状态 *</label><select><option>已并网</option><option>未并网</option><option>待并网</option></select></div>
+            <div class="field"><label>厂商（选填）</label><input value="Dell" /></div>
+            <div class="field"><label>CPU 架构 *</label><input value="x86_64" /></div>
+            <div class="field"><label>SN（选填）</label><input value="SN-9A1F" /></div>
+            <div class="field"><label>物理位置（选填）</label><input value="上海-机柜 A12" /></div>
+            <div class="field"><label>所属业务 *</label><input value="支付服务" /></div>
+            <div class="field"><label>IPv4 *</label><input value="10.10.8.21" /></div>
+            <div class="field"><label>IPv6（选填）</label><input placeholder="可为空" /></div>
+            <div class="field"><label>操作系统 *</label><input value="Ubuntu 22.04" /></div>
+            <div class="field"><label>主机名（选填）</label><input value="pay-core-01" /></div>
+            <div class="field"><label>网络区域 *</label><input value="prod-app" /></div>
+            <div class="field"><label>所在宿主机（选填）</label><input placeholder="虚拟机可关联宿主机" /></div>
+            <div class="field"><label>CPU *</label><input value="16C" /></div>
+            <div class="field"><label>内存 *</label><input value="64GB" /></div>
+            <div class="field"><label>磁盘 *</label><input value="2TB SSD" /></div>
+            <div class="field wide"><label>部署信息 *</label><input value="Docker Compose，支付核心服务实例" /></div>
+            <div class="field"><label>负责人 *</label><input value="运维工程师" /></div>
+            <div class="field"><label>状态 *</label><select><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select></div>
+            <div class="field full"><label>备注（选填）</label><input value="核心支付资产，变更需提前通知研发和值班人员" /></div>
+            <div class="field wide"><label>登录账号（新增/编辑时明文录入）</label><input value="ops_admin" /></div>
+            <div class="field wide"><label>登录密码（新增/编辑时明文录入，保存后密文存储）</label><input value="InitPass-******" /></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <div>
+              <h2>内部视图预留</h2>
+              <p>仅保留拓扑视图入口。后续如需追踪字段调整，可放入操作日志或审批模块。</p>
+            </div>
+          </div>
+          <div class="topology">
+            <div class="node">业务<br>支付服务</div>
+            <div class="node primary">资产<br>ASSET-202606-0001</div>
+            <div class="node">实例<br>pay-mysql-primary</div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="drawer">
+        <div class="drawer-head">
+          <div class="asset-name">
+            <span class="pill">选中资产后显示</span>
+            <h3>ASSET-202606-0001</h3>
+            <p>点击资产列表后显示 · pay-core-01 · 支付服务 · 生产</p>
+          </div>
+          <span class="pill success">运行中</span>
+        </div>
+        <dl class="detail-grid">
+          <dt>类型</dt><dd>物理机</dd>
+          <dt>并网状态</dt><dd>已并网</dd>
+          <dt>厂商 / SN</dt><dd>Dell / SN-9A1F</dd>
+          <dt>物理位置</dt><dd>上海-机柜 A12</dd>
+          <dt>IP</dt><dd>10.10.8.21</dd>
+          <dt>网络区域</dt><dd>prod-app</dd>
+          <dt>配置规格</dt><dd>16C / 64GB / 2TB SSD</dd>
+          <dt>部署信息</dt><dd>Docker Compose，支付核心服务实例</dd>
+          <dt>负责人</dt><dd>运维工程师</dd>
+        </dl>
+
+        <div class="drawer-section">
+          <h4>关联对象</h4>
+          <div class="mini-flow">
+            <div class="mini-step"><b>1</b><span>支付服务</span><span class="pill">所属业务</span></div>
+            <div class="mini-step"><b>2</b><span>pay-mysql-primary</span><span class="pill">数据库实例</span></div>
+            <div class="mini-step"><b>3</b><span>gateway-nginx</span><span class="pill">中间件实例</span></div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>登录信息</h4>
+          <div class="credential">
+            <p>账号密码保存后密文存储，默认隐藏。查看校验密码由超级管理员统一设置；新增/编辑资产录入时允许明文编辑，保存后不再明文展示。</p>
+            <div class="credential-row">
+              <input value="https://console.pay.example" aria-label="登录地址" />
+              <span class="pill warn">已保存密钥</span>
+            </div>
+            <div class="credential-row">
+              <input value="ops_admin" aria-label="账号" />
+              <button class="btn"><span class="ico">⧉</span>复制账号</button>
+            </div>
+            <div class="credential-row">
+              <input type="password" value="********" aria-label="密码" />
+              <button class="btn primary"><span class="ico">◌</span>输入校验密码查看</button>
+            </div>
+            <button class="btn"><span class="ico">✓</span>保存凭据（加密）</button>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>当前资产操作</h4>
+          <div class="drawer-actions">
+            <button class="btn primary"><span class="ico">✎</span>编辑资产</button>
+            <button class="btn"><span class="ico">⌁</span>查看拓扑</button>
+            <button class="btn ghost"><span class="ico">⌁</span>关联实例</button>
+            <button class="btn danger danger-zone"><span class="ico">×</span>删除资产</button>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>请确认列表与筛选</h3>
+        <ul>
+          <li>默认列：资产编号、类型、环境、网络区域、IP、配置规格、所属业务、部署信息、状态、负责人、操作。</li>
+          <li>常用筛选：关键词、类型、环境；所属业务、网络区域、并网状态、负责人收进高级搜索。</li>
+          <li>列表行内提供删除入口；仅资产创建用户和超级管理员可删除。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>请确认详情与凭据</h3>
+        <ul>
+          <li>右侧详情仅在点击资产列表后显示，未选择时隐藏，避免页面拥挤。</li>
+          <li>登录信息在新增/编辑资产时可明文录入；保存后默认隐藏，不在列表中展示。</li>
+          <li>查看校验密码由超级管理员统一设置；密文存储、后续审计预留保持一致。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>请确认内部视图</h3>
+        <ul>
+          <li>CMDB 内部仅保留台账列表和拓扑视图两个 Tab。</li>
+          <li>不设置额外的字段调整 Tab；后续如需要审计可进入操作日志或审批模块。</li>
+          <li>资产和中间件/数据库实例的关联关系必须保留。</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

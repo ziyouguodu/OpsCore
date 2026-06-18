@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 资产管理页面框架确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif; color: #172033; background: #eef2f7; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0; color: #667085; line-height: 1.6; }
+    .page { max-width: 1320px; margin: 0 auto; }
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+    .mockup, .option, .note { background: #fff; border: 1px solid #d9dee8; border-radius: 10px; overflow: hidden; }
+    .mockup-header { padding: 13px 14px; color: #fff; font-weight: 800; background: #172033; }
+    .mockup-body { padding: 14px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+    .search { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin-bottom: 12px; }
+    .placeholder { display: grid; place-items: center; min-height: 58px; padding: 10px; border: 1px dashed #c7d7ee; border-radius: 8px; color: #5b6b83; background: #f8fbff; text-align: center; font-size: 13px; }
+    .placeholder.tall { height: 168px; }
+    .detail { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    input, button { min-height: 34px; border-radius: 7px; font: inherit; }
+    input { width: 100%; padding: 7px 10px; border: 1px solid #d8e0ec; }
+    button { border: 1px solid #cfd8e7; padding: 0 12px; color: #344054; background: #fff; }
+    button.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    button[disabled] { color: #98a2b3; background: #f2f4f7; }
+    .options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+    .option { padding: 14px; }
+    .option b { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #2563eb; margin-bottom: 8px; }
+    .option h3 { margin: 0 0 6px; font-size: 16px; }
+    .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .note { padding: 14px; }
+    .note h3 { margin: 0 0 10px; }
+    li { margin: 7px 0; color: #475467; }
+    @media (max-width: 980px) { .split, .options, .notes { grid-template-columns: 1fr; } body { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>资产管理：页面框架确认</h1>
+    <p>这一屏确认资产管理两个一期二级菜单的职责边界和核心交互。确认后再分别细化两个子页面的字段、筛选、表单和详情。</p>
+
+    <section class="split">
+      <div class="mockup">
+        <div class="mockup-header">资产台账（CMDB）：服务器与基础资产</div>
+        <div class="mockup-body">
+          <div class="grid4">
+            <div class="placeholder">资产总数<br>1,284</div>
+            <div class="placeholder">生产<br>826</div>
+            <div class="placeholder">异常<br>12</div>
+            <div class="placeholder">待补全<br>36</div>
+          </div>
+          <div class="search">
+            <input placeholder="搜索资产编号、主机名、IP、业务" />
+            <button>高级筛选</button>
+            <button class="primary">新增资产</button>
+          </div>
+          <div class="placeholder tall">表格列：资产编号 / 类型 / 主机名 / IPv4 / 环境 / 所属业务 / 负责人 / 状态 / 操作</div>
+          <div class="detail">
+            <div class="placeholder">右侧详情：基础信息、配置规格、部署信息</div>
+            <div class="placeholder">敏感区：登录信息，需二次密码校验</div>
+          </div>
+          <div class="actions">
+            <button>拓扑视图</button>
+            <button>配置变更</button>
+            <button>导出资产</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mockup">
+        <div class="mockup-header">中间件与数据库：实例与凭据</div>
+        <div class="mockup-body">
+          <div class="grid4">
+            <div class="placeholder">实例总数<br>312</div>
+            <div class="placeholder">数据库<br>148</div>
+            <div class="placeholder">中间件<br>164</div>
+            <div class="placeholder">凭据待审计<br>9</div>
+          </div>
+          <div class="search">
+            <input placeholder="搜索实例名称、Endpoint、业务" />
+            <button>类型筛选</button>
+            <button class="primary">新增实例</button>
+          </div>
+          <div class="placeholder tall">表格列：实例名称 / 类型 / 版本 / Endpoint / 环境 / 所属业务 / 关联资产 / 状态 / 操作</div>
+          <div class="detail">
+            <div class="placeholder">右侧详情：实例配置、Endpoint、关联服务器</div>
+            <div class="placeholder">凭据区：账号密码密文存储，二次校验查看</div>
+          </div>
+          <div class="actions">
+            <button>关联资产</button>
+            <button>连接信息</button>
+            <button disabled>远程连接（二期）</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="options">
+      <article class="option"><b>1</b><h3>资产台账（CMDB）职责</h3><p>一期录入服务器与基础资产，维护配置规格、IP、环境、所属业务、部署信息、负责人、状态和登录信息。</p></article>
+      <article class="option"><b>2</b><h3>中间件与数据库职责</h3><p>一期管理 MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx 等实例、账号密码和关联资产。</p></article>
+      <article class="option"><b>3</b><h3>远程连接放到后续</h3><p>一期只预留连接信息与灰度按钮，不实现远程连接、会话审计、命令执行等能力。</p></article>
+      <article class="option"><b>4</b><h3>凭据交互统一</h3><p>资产和实例都采用“密文存储 + 默认隐藏 + 二次密码校验查看 + 操作审计预留”的同一交互。</p></article>
+    </section>
+
+    <section class="notes">
+      <article class="note">
+        <h3>建议确认</h3>
+        <ul>
+          <li>两个二级菜单都保留，避免资产和实例混在同一张表里。</li>
+          <li>实例必须能关联资产，这是后续拓扑、影响分析、远程连接的基础。</li>
+          <li>凭据能力做成共用模式，减少后续重复设计。</li>
+        </ul>
+      </article>
+      <article class="note">
+        <h3>后续再做</h3>
+        <ul>
+          <li>批量扫描发现资产。</li>
+          <li>远程连接与会话审计。</li>
+          <li>自动拓扑生成和变更审批流。</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

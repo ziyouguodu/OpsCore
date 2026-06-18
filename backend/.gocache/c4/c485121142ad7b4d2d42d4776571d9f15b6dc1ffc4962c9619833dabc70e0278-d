@@ -1,0 +1,4 @@
+./password.go
+./rbac.go
+./token.go
+./auth_test.go

@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 值班管理高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; letter-spacing: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.46fr) minmax(360px, .8fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .workspace-title { display: grid; gap: 5px; margin-bottom: 12px; }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0 12px;
+      border-top: 1px solid #edf0f5;
+    }
+    .view-switch {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 9px;
+      background: #f1f5fb;
+      border: 1px solid #dbe3ef;
+      white-space: nowrap;
+    }
+    .tab { min-height: 30px; border-radius: 7px; padding: 0 10px; color: #475467; background: transparent; border: 1px solid transparent; }
+    .tab.active { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .module-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    .advanced-link {
+      color: #2563eb;
+      background: transparent;
+      border: 0;
+      padding: 0 6px;
+      min-height: 34px;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.info { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; }
+    .pill.gray { color: #667085; background: #f2f4f7; border-color: #e4e7ec; }
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(120px, 1fr));
+      gap: 10px;
+      overflow: auto;
+      padding-bottom: 2px;
+    }
+    .day-card {
+      min-height: 188px;
+      border-radius: 10px;
+      border: 1px solid #d9dee8;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .day-card.today {
+      border-color: #93b7ff;
+      background: linear-gradient(135deg, #e8f0ff 0%, #fff 100%);
+      box-shadow: inset 0 3px 0 #2563eb;
+    }
+    .day-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+      border-bottom: 1px solid #edf0f5;
+      padding-bottom: 8px;
+    }
+    .day-head strong { font-size: 15px; }
+    .day-head span { color: #667085; font-size: 12px; }
+    .shift {
+      border-radius: 9px;
+      padding: 9px;
+      display: grid;
+      gap: 5px;
+      border: 1px solid #e4e7ec;
+      background: #f8fafc;
+    }
+    .shift.primary {
+      border-color: #b8d0ff;
+      background: #eef4ff;
+      box-shadow: inset 3px 0 0 #2563eb;
+    }
+    .shift.backup {
+      border-color: #99f6e4;
+      background: #ecfdf9;
+      box-shadow: inset 3px 0 0 #14b8a6;
+    }
+    .shift small { color: #667085; font-size: 12px; }
+    .shift strong { font-size: 13px; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .detail-grid { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .person-list { display: grid; gap: 8px; }
+    .person-row {
+      display: grid;
+      grid-template-columns: 34px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 9px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      color: #174ea6;
+      background: #e8f0ff;
+      border: 1px solid #c9dcff;
+      font-weight: 800;
+    }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size { width: 104px; min-width: 104px; flex: 0 0 104px; }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .checks { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .kpis { grid-template-columns: 1fr 1fr; }
+      .schedule-grid { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .toolbar, .list-footer { align-items: stretch; flex-direction: column; }
+      .hero-actions, .module-actions, .pagination { justify-content: flex-start; margin-left: 0; }
+      .query-bar, .kpis { grid-template-columns: 1fr; }
+      .schedule-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <h1>值班管理高保真确认</h1>
+        <p>作为协同与事件响应下的二级页面，重点确认排班日历、主值/备值、按天/按周规则、换班申请与换班记录。</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn"><span class="ico">⇩</span>导出排班</button>
+        <button class="btn ghost"><span class="ico">⇄</span>换班申请</button>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="值班管理指标">
+      <article class="kpi">
+        <span>今日主值 / 备值</span>
+        <strong>2 / 6</strong>
+        <em>覆盖生产、数据库、中间件</em>
+        <small>08:00 - 20:00</small>
+      </article>
+      <article class="kpi">
+        <span>本周排班覆盖率</span>
+        <strong>96%</strong>
+        <em>1 个夜间时段待补齐</em>
+        <div class="mini-meter"><i style="width:96%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>待处理换班</span>
+        <strong>3</strong>
+        <em>待确认 1，待审批 2</em>
+        <div class="mini-meter warn"><i style="width:42%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>排班规则</span>
+        <strong>按周</strong>
+        <em>支持切换按天规则</em>
+        <small>节假日手动确认</small>
+      </article>
+      <article class="kpi">
+        <span>当前值班状态</span>
+        <strong>正常</strong>
+        <em>主值在线，备值待命</em>
+        <small>事件响应可自动带出值班人</small>
+      </article>
+    </section>
+
+    <main class="layout">
+      <section>
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>排班看板</h2>
+            <p>默认展示本周视图，突出每天主值与备值；点击日期或人员后在右侧查看班次详情。</p>
+          </div>
+          <div class="toolbar">
+            <div class="view-switch" aria-label="排班视图切换">
+              <button class="tab">日视图</button>
+              <button class="tab active">周视图</button>
+              <button class="tab">月历</button>
+            </div>
+            <div class="module-actions">
+              <button class="btn"><span class="ico">↻</span>应用排班规则</button>
+              <button class="btn primary"><span class="ico">＋</span>新增排班</button>
+            </div>
+          </div>
+
+          <div class="query-bar">
+            <input class="keyword" value="支付业务值班组" aria-label="关键词" />
+            <select class="select-compact" aria-label="周期">
+              <option>本周</option>
+              <option>下周</option>
+              <option>本月</option>
+            </select>
+            <select class="select-compact" aria-label="角色">
+              <option>全部角色</option>
+              <option>主值</option>
+              <option>备值</option>
+            </select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+            <button class="advanced-link">高级搜索</button>
+          </div>
+          <div class="chips">
+            <span class="chip">高级搜索：值班组、人员、班次状态、时间范围</span>
+            <span class="chip">规则：按周轮换</span>
+            <span class="chip">班次：08:00 - 20:00</span>
+          </div>
+
+          <div class="schedule-grid">
+            <div class="day-card">
+              <div class="day-head"><div><strong>周一</strong><br><span>06-01</span></div><span class="pill success">完成</span></div>
+              <div class="shift primary"><small>主值</small><strong>李明 / 王敏</strong></div>
+              <div class="shift backup"><small>备值</small><strong>赵晨 / 陈浩</strong></div>
+            </div>
+            <div class="day-card">
+              <div class="day-head"><div><strong>周二</strong><br><span>06-02</span></div><span class="pill success">完成</span></div>
+              <div class="shift primary"><small>主值</small><strong>赵晨 / 刘洋</strong></div>
+              <div class="shift backup"><small>备值</small><strong>李明 / 陈浩</strong></div>
+            </div>
+            <div class="day-card">
+              <div class="day-head"><div><strong>周三</strong><br><span>06-03</span></div><span class="pill success">完成</span></div>
+              <div class="shift primary"><small>主值</small><strong>王敏 / 陈浩</strong></div>
+              <div class="shift backup"><small>备值</small><strong>赵晨 / 刘洋</strong></div>
+            </div>
+            <div class="day-card today">
+              <div class="day-head"><div><strong>周四</strong><br><span>06-04 今日</span></div><span class="pill info">当前</span></div>
+              <div class="shift primary"><small>主值</small><strong>李明 / 王敏</strong></div>
+              <div class="shift backup"><small>备值</small><strong>赵晨 / 陈浩 / 刘洋</strong></div>
+            </div>
+            <div class="day-card">
+              <div class="day-head"><div><strong>周五</strong><br><span>06-05</span></div><span class="pill warn">换班</span></div>
+              <div class="shift primary"><small>主值</small><strong>刘洋 / 赵晨</strong></div>
+              <div class="shift backup"><small>备值</small><strong>待确认：王敏 → 陈浩</strong></div>
+            </div>
+            <div class="day-card">
+              <div class="day-head"><div><strong>周六</strong><br><span>06-06</span></div><span class="pill warn">待补</span></div>
+              <div class="shift primary"><small>主值</small><strong>陈浩 / 李明</strong></div>
+              <div class="shift"><small>备值</small><strong>夜间时段待补齐</strong></div>
+            </div>
+            <div class="day-card">
+              <div class="day-head"><div><strong>周日</strong><br><span>06-07</span></div><span class="pill gray">预排</span></div>
+              <div class="shift primary"><small>主值</small><strong>王敏 / 赵晨</strong></div>
+              <div class="shift backup"><small>备值</small><strong>李明 / 刘洋</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="workspace-title">
+            <h2>换班申请与记录</h2>
+            <p>换班需要双方确认，涉及关键班次时由管理人员审批；生效后保留换班记录。</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>申请编号</th>
+                  <th>班次时间</th>
+                  <th>原值班人</th>
+                  <th>接班人</th>
+                  <th>角色</th>
+                  <th>状态</th>
+                  <th>原因</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td>SHIFT-202606-0006</td>
+                  <td>06-05 08:00 - 20:00</td>
+                  <td>王敏</td>
+                  <td>陈浩</td>
+                  <td><span class="pill info">备值</span></td>
+                  <td><span class="pill warn">待确认</span></td>
+                  <td>临时出差</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">确认</button>
+                      <button class="action">详情</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>SHIFT-202606-0005</td>
+                  <td>06-06 20:00 - 08:00</td>
+                  <td>赵晨</td>
+                  <td>刘洋</td>
+                  <td><span class="pill info">主值</span></td>
+                  <td><span class="pill warn">待审批</span></td>
+                  <td>夜间班次调整</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">审批</button>
+                      <button class="action">详情</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td>SHIFT-202606-0004</td>
+                  <td>06-03 08:00 - 20:00</td>
+                  <td>李明</td>
+                  <td>王敏</td>
+                  <td><span class="pill info">主值</span></td>
+                  <td><span class="pill success">已生效</span></td>
+                  <td>培训冲突</td>
+                  <td><button class="action">查看</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-footer">
+            <span class="page-info">共 18 条换班记录，默认展示本月申请</span>
+            <div class="pagination">
+              <select class="page-size" aria-label="每页显示">
+                <option>20 条/页</option>
+                <option>50 条/页</option>
+              </select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="drawer" aria-label="当前班次详情">
+        <div class="drawer-head">
+          <div>
+            <h3>周四当前班次</h3>
+            <p>支付业务值班组，08:00 - 20:00</p>
+          </div>
+          <span class="pill success">值班正常</span>
+        </div>
+        <dl class="detail-grid">
+          <dt>排班规则</dt><dd>按周轮换，节假日手动确认</dd>
+          <dt>班次类型</dt><dd>白班，覆盖生产环境</dd>
+          <dt>覆盖范围</dt><dd>应用、数据库、中间件、网络区域 prod-core</dd>
+          <dt>事件联动</dt><dd>新建 P1/P2 事件时自动带出主值与备值</dd>
+          <dt>换班限制</dt><dd>关键班次需要双方确认 + 管理人员审批</dd>
+        </dl>
+
+        <div class="drawer-section">
+          <h4>值班人员</h4>
+          <div class="person-list">
+            <div class="person-row">
+              <span class="avatar">李</span>
+              <div><strong>李明</strong><p>主值，应用与中间件</p></div>
+              <span class="pill success">在线</span>
+            </div>
+            <div class="person-row">
+              <span class="avatar">王</span>
+              <div><strong>王敏</strong><p>主值，数据库与网络</p></div>
+              <span class="pill success">在线</span>
+            </div>
+            <div class="person-row">
+              <span class="avatar">赵</span>
+              <div><strong>赵晨</strong><p>备值，事件支援</p></div>
+              <span class="pill info">待命</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>换班流程</h4>
+          <div class="mini-flow">
+            <div class="mini-step">
+              <b>1</b>
+              <span>原值班人提交换班申请，填写原因和接班人</span>
+              <span class="pill success">创建</span>
+            </div>
+            <div class="mini-step">
+              <b>2</b>
+              <span>接班人确认是否接受该班次</span>
+              <span class="pill warn">待确认</span>
+            </div>
+            <div class="mini-step">
+              <b>3</b>
+              <span>关键班次由管理人员审批</span>
+              <span class="pill warn">待审批</span>
+            </div>
+            <div class="mini-step">
+              <b>4</b>
+              <span>审批通过后自动更新排班并生成记录</span>
+              <span class="pill info">生效</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>一期范围</h3>
+        <ul>
+          <li>支持按天、按周排班规则。</li>
+          <li>区分主值和备值，班次可关联业务和值班组。</li>
+          <li>事件响应可自动引用当前值班人员。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>换班规则</h3>
+        <ul>
+          <li>换班申请需要原值班人、接班人、班次时间和原因。</li>
+          <li>接班人确认后，关键班次再由管理人员审批。</li>
+          <li>生效后更新排班并保留换班记录。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>权限说明</h3>
+        <ul>
+          <li>超级管理员可新增、编辑、删除排班规则。</li>
+          <li>运维工程师可查看值班情况并处理本人换班。</li>
+          <li>值班人员只读值班安排，后续再扩展自助换班。</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

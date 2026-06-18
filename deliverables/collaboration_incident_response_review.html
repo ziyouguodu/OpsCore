@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpsCore 协同与事件响应高保真确认</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }
+    h1, h2, h3, h4 { margin: 0; letter-spacing: 0; }
+    p { margin: 0; color: #667085; line-height: 1.55; }
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: default; }
+    .page { max-width: 1440px; margin: 0 auto; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: 26px; }
+    .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 34px;
+      border-radius: 7px;
+      padding: 0 12px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .btn.primary { color: #fff; background: #2563eb; border-color: #2563eb; }
+    .btn.ghost { color: #2563eb; background: #eef4ff; border-color: #c9dcff; }
+    .btn.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .btn.disabled { color: #98a2b3; background: #f2f4f7; border-color: #e4e7ec; }
+    .ico {
+      display: inline-grid;
+      place-items: center;
+      width: 15px;
+      height: 15px;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .kpi, .panel, .drawer, .check-card {
+      background: #fff;
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+    }
+    .kpi { padding: 13px; display: grid; gap: 6px; min-height: 104px; }
+    .kpi span { color: #667085; font-size: 12px; }
+    .kpi strong { font-size: 25px; }
+    .kpi em { font-style: normal; color: #667085; font-size: 12px; }
+    .kpi small { color: #98a2b3; font-size: 11px; }
+    .mini-meter { height: 6px; border-radius: 999px; overflow: hidden; background: #edf0f5; }
+    .mini-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #12b981, #2563eb); }
+    .mini-meter.warn i { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    .level-strip {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #ef4444 0 19%, #f59e0b 19% 43%, #2563eb 43% 72%, #12b981 72%);
+    }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, .82fr); gap: 14px; align-items: start; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .workspace-head { margin-bottom: 10px; }
+    .workspace-title { display: grid; gap: 5px; }
+    .list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 0 12px;
+      border-top: 1px solid #edf0f5;
+    }
+    .module-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .view-switch {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 9px;
+      background: #f1f5fb;
+      border: 1px solid #dbe3ef;
+      white-space: nowrap;
+    }
+    .tab { min-height: 30px; border-radius: 7px; padding: 0 10px; color: #475467; background: transparent; border: 1px solid transparent; }
+    .tab.active { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .query-bar {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .keyword { min-width: 0; }
+    .select-compact { min-width: 126px; }
+    .advanced-link {
+      color: #2563eb;
+      background: transparent;
+      border: 0;
+      padding: 0 6px;
+      min-height: 34px;
+      font-weight: 700;
+    }
+    input, select {
+      min-height: 34px;
+      width: 100%;
+      border: 1px solid #d8e0ec;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #fff;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip, .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      color: #475467;
+      background: #eef2f7;
+      border: 1px solid #d9dee8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.success { color: #087443; background: #ecfdf3; border-color: #abefc6; }
+    .pill.warn { color: #b54708; background: #fffaeb; border-color: #fedf89; }
+    .pill.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .pill.info { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; }
+    .table-wrap { overflow: auto; border: 1px solid #edf0f5; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #edf0f5; white-space: nowrap; }
+    th { color: #667085; background: #f8fafc; font-weight: 700; }
+    tr.selected td { background: #f3f7ff; }
+    .row-actions { display: inline-flex; gap: 6px; align-items: center; }
+    .action {
+      min-height: 26px;
+      border-radius: 6px;
+      padding: 0 8px;
+      color: #475467;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      font-size: 12px;
+    }
+    .action.primary { color: #174ea6; background: #e8f0ff; border-color: #c9dcff; font-weight: 700; }
+    .action.danger { color: #b42318; background: #fff1f1; border-color: #ffd1d1; }
+    .list-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 12px 0 0;
+      flex-wrap: wrap;
+    }
+    .footer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 280px; }
+    .pagination { display: flex; gap: 8px; flex-wrap: nowrap; align-items: center; margin-left: auto; white-space: nowrap; }
+    .page-info { color: #667085; font-size: 12px; }
+    .page-size { width: 104px; min-width: 104px; flex: 0 0 104px; }
+    .page-btn {
+      min-width: 34px;
+      flex: 0 0 34px;
+      min-height: 32px;
+      border-radius: 7px;
+      color: #344054;
+      background: #fff;
+      border: 1px solid #d8e0ec;
+    }
+    .page-btn.active { color: #174ea6; border-color: #2563eb; background: #f5f9ff; font-weight: 700; }
+    .drawer { padding: 14px; position: sticky; top: 18px; }
+    .drawer-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+    .drawer-head h3 { font-size: 18px; }
+    .selected-title { display: grid; gap: 4px; }
+    .detail-grid { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px 10px; font-size: 13px; margin-bottom: 14px; }
+    .detail-grid dt { color: #667085; }
+    .detail-grid dd { margin: 0; color: #172033; min-width: 0; word-break: break-word; }
+    .drawer-section { border-top: 1px solid #e6edf7; padding-top: 12px; margin-top: 12px; }
+    .drawer-section h4 { margin-bottom: 8px; font-size: 14px; }
+    .drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .mini-flow { display: grid; gap: 8px; }
+    .mini-step { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+    .mini-step b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #174ea6; background: #e8f0ff; }
+    .oncall-panel {
+      border-color: #bfd3ff;
+      background:
+        linear-gradient(135deg, #eff6ff 0%, #ffffff 48%, #f4fbf7 100%);
+      box-shadow: 0 10px 28px rgba(37, 99, 235, .08);
+    }
+    .oncall-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .oncall-title {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+    }
+    .oncall-icon {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      color: #174ea6;
+      background: #dbeafe;
+      border: 1px solid #b8d0ff;
+      font-size: 21px;
+      font-weight: 800;
+    }
+    .oncall-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 0 10px;
+      color: #087443;
+      background: #ecfdf3;
+      border: 1px solid #abefc6;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .oncall-status i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #12b981;
+      display: inline-block;
+    }
+    .oncall-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .person-card {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid #dbe7f8;
+      border-radius: 8px;
+      background: #f8fbff;
+      position: relative;
+      overflow: hidden;
+    }
+    .person-card.primary {
+      border-color: #93b7ff;
+      background: linear-gradient(135deg, #dceaff 0%, #f7fbff 100%);
+      box-shadow: inset 4px 0 0 #2563eb;
+    }
+    .person-card.backup {
+      border-color: #99f6e4;
+      background: linear-gradient(135deg, #dcfaf5 0%, #f8fffd 100%);
+      box-shadow: inset 4px 0 0 #14b8a6;
+    }
+    .person-card.rule {
+      border-color: #d8b4fe;
+      background: linear-gradient(135deg, #f3e8ff 0%, #fffaff 100%);
+      box-shadow: inset 4px 0 0 #7c3aed;
+    }
+    .person-card.swap {
+      border-color: #fed7aa;
+      background: linear-gradient(135deg, #fff4e6 0%, #fffdf7 100%);
+      box-shadow: inset 4px 0 0 #f59e0b;
+    }
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .card-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #475467;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .card-icon {
+      display: inline-grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .primary .card-icon { background: #2563eb; }
+    .backup .card-icon { background: #14b8a6; }
+    .rule .card-icon { background: #7c3aed; }
+    .swap .card-icon { background: #f59e0b; }
+    .card-tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border-radius: 999px;
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: rgba(255,255,255,.7);
+      border: 1px solid rgba(255,255,255,.75);
+    }
+    .primary .card-tag { color: #174ea6; }
+    .backup .card-tag { color: #087443; }
+    .rule .card-tag { color: #6d28d9; }
+    .swap .card-tag { color: #b54708; }
+    .person-card strong {
+      font-size: 15px;
+      color: #111827;
+    }
+    .person-card p { font-size: 13px; }
+    .timeline { display: grid; gap: 10px; }
+    .timeline-item { display: grid; grid-template-columns: 104px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+    .flow-panel {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .flow-card {
+      border: 1px solid #d9dee8;
+      border-radius: 10px;
+      padding: 12px;
+      background: #fff;
+    }
+    .flow-card h3 { font-size: 15px; margin-bottom: 10px; }
+    .flow-line { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+    .state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: #f5f7fb;
+      border: 1px solid #e1e7f0;
+      color: #475467;
+      white-space: nowrap;
+    }
+    .arrow { color: #98a2b3; }
+    .checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+    .check-card { padding: 14px; }
+    .check-card h3 { margin-bottom: 8px; font-size: 16px; }
+    ul { margin: 8px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; color: #475467; }
+    @media (max-width: 1180px) {
+      .layout, .checks, .flow-panel { grid-template-columns: 1fr; }
+      .drawer { position: static; }
+      .query-bar, .kpis { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 16px; }
+      .hero, .list-toolbar, .list-footer { align-items: stretch; flex-direction: column; }
+      .hero-actions, .module-actions, .pagination { justify-content: flex-start; margin-left: 0; }
+      .query-bar, .kpis, .oncall-grid { grid-template-columns: 1fr; }
+      .oncall-head { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <h1>协同与事件响应高保真确认</h1>
+        <p>作为协同与事件响应模块的总览确认稿，聚合待办队列与关键状态；值班管理、任务跟踪、事件管理在最终系统中仍建议保留为独立二级页面。</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn"><span class="ico">⇩</span>导出周报</button>
+        <button class="btn ghost"><span class="ico">◷</span>换班申请</button>
+      </div>
+    </header>
+
+    <section class="kpis" aria-label="协同与事件响应指标">
+      <article class="kpi">
+        <span>今日值班</span>
+        <strong>8</strong>
+        <em>主值 2，备值 6</em>
+        <small>按天 / 按周排班</small>
+      </article>
+      <article class="kpi">
+        <span>待处理任务</span>
+        <strong>14</strong>
+        <em>处理中 7，待确认 3</em>
+        <div class="mini-meter"><i style="width:68%"></i></div>
+      </article>
+      <article class="kpi">
+        <span>活跃事件</span>
+        <strong>4</strong>
+        <em>P1 1，P2 1，P3 1，P4 1</em>
+        <div class="level-strip"></div>
+      </article>
+      <article class="kpi">
+        <span>平均响应</span>
+        <strong>18m</strong>
+        <em>近 7 日事件响应</em>
+        <small>较昨日 -6m</small>
+      </article>
+      <article class="kpi">
+        <span>待换班处理</span>
+        <strong>3</strong>
+        <em>待审批 2，待确认 1</em>
+        <div class="mini-meter warn"><i style="width:36%"></i></div>
+      </article>
+    </section>
+
+    <main class="layout">
+      <section>
+        <article class="panel oncall-panel">
+          <div class="oncall-head">
+            <div class="oncall-title">
+              <span class="oncall-icon">◷</span>
+              <div>
+                <h2>值班概览</h2>
+                <p>一期支持按天、按周排班，区分主值与备值，并记录换班申请和换班结果。</p>
+              </div>
+            </div>
+            <span class="oncall-status"><i></i>当前值班正常</span>
+          </div>
+          <div class="oncall-grid">
+            <div class="person-card primary">
+              <div class="card-top">
+                <span class="card-label"><span class="card-icon">主</span>今日主值</span>
+                <span class="card-tag">在线</span>
+              </div>
+              <strong>李明 / 王敏</strong>
+              <p>覆盖生产与核心数据库，08:00 - 20:00</p>
+            </div>
+            <div class="person-card backup">
+              <div class="card-top">
+                <span class="card-label"><span class="card-icon">备</span>今日备值</span>
+                <span class="card-tag">待命</span>
+              </div>
+              <strong>赵晨 / 陈浩 / 刘洋</strong>
+              <p>覆盖网络、应用、中间件与数据库</p>
+            </div>
+            <div class="person-card rule">
+              <div class="card-top">
+                <span class="card-label"><span class="card-icon">规</span>排班规则</span>
+                <span class="card-tag">按周</span>
+              </div>
+              <strong>按周轮换，节假日手动确认</strong>
+              <p>可切换按天规则，保留换班记录</p>
+            </div>
+            <div class="person-card swap">
+              <div class="card-top">
+                <span class="card-label"><span class="card-icon">换</span>换班处理</span>
+                <span class="card-tag">需处理</span>
+              </div>
+              <strong>3 条待处理</strong>
+              <p>管理人员审批，双方确认后生效</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="workspace-head">
+            <div class="workspace-title">
+              <h2>协同工作台</h2>
+              <p>默认进入待办队列，聚合任务、事件和值班换班事项；下方页签用于确认同一模块内的视图切换，不替代左侧二级菜单。</p>
+            </div>
+          </div>
+
+          <div class="list-toolbar">
+            <div class="view-switch" aria-label="协同视图切换">
+              <button class="tab active"><span class="ico">≡</span>待办队列</button>
+              <button class="tab"><span class="ico">◷</span>值班管理</button>
+              <button class="tab"><span class="ico">✓</span>任务跟踪</button>
+              <button class="tab"><span class="ico">!</span>事件管理</button>
+            </div>
+            <div class="module-actions">
+              <button class="btn"><span class="ico">＋</span>创建任务</button>
+              <button class="btn primary"><span class="ico">＋</span>新建事件</button>
+            </div>
+          </div>
+
+          <div class="query-bar">
+            <input class="keyword" value="支付" aria-label="关键词" />
+            <select class="select-compact" aria-label="类型">
+              <option>全部类型</option>
+              <option>任务</option>
+              <option>事件</option>
+              <option>换班</option>
+            </select>
+            <select class="select-compact" aria-label="等级">
+              <option>全部等级</option>
+              <option>P1</option>
+              <option>P2</option>
+              <option>P3</option>
+              <option>P4</option>
+            </select>
+            <button class="btn primary"><span class="ico">⌕</span>查询</button>
+            <button class="advanced-link">高级搜索</button>
+          </div>
+          <div class="chips">
+            <span class="chip">高级搜索：负责人、所属业务、值班角色、时间范围</span>
+            <span class="chip">业务：支付服务</span>
+            <span class="chip">状态：未关闭</span>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>编号</th>
+                  <th>标题</th>
+                  <th>等级 / 优先级</th>
+                  <th>状态</th>
+                  <th>负责人</th>
+                  <th>关联对象</th>
+                  <th>时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="selected">
+                  <td><span class="pill danger">事件</span></td>
+                  <td>INC-202606-0001</td>
+                  <td>支付服务异常峰值，需要跨团队协同</td>
+                  <td><span class="pill danger">P1</span></td>
+                  <td><span class="pill warn">处理中</span></td>
+                  <td>运维工程师 / 研发</td>
+                  <td>支付服务，3 台主机，1 个数据库</td>
+                  <td>剩余 42 分钟</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">跟进</button>
+                      <button class="action">War Room</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="pill info">任务</span></td>
+                  <td>TASK-202606-0018</td>
+                  <td>核心数据库巡检结果确认</td>
+                  <td><span class="pill warn">高</span></td>
+                  <td><span class="pill info">待确认</span></td>
+                  <td>SRE</td>
+                  <td>PostgreSQL 主库</td>
+                  <td>今天 18:00</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">处理</button>
+                      <button class="action">详情</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="pill">换班</span></td>
+                  <td>SHIFT-202606-0006</td>
+                  <td>本周五备值换班申请</td>
+                  <td><span class="pill">普通</span></td>
+                  <td><span class="pill warn">待确认</span></td>
+                  <td>管理人员</td>
+                  <td>支付业务值班组</td>
+                  <td>明天 12:00</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">确认</button>
+                      <button class="action">详情</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td><span class="pill danger">事件</span></td>
+                  <td>INC-202606-0002</td>
+                  <td>网关 Nginx 证书有效期异常提醒</td>
+                  <td><span class="pill warn">P2</span></td>
+                  <td><span class="pill info">新建</span></td>
+                  <td>运维工程师</td>
+                  <td>gateway-nginx</td>
+                  <td>今天 20:00</td>
+                  <td>
+                    <span class="row-actions">
+                      <button class="action primary">受理</button>
+                      <button class="action">详情</button>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="list-footer">
+            <div class="footer-actions">
+              <span class="page-info">已选 1 条记录，可进行跟进或加入 War Room</span>
+            </div>
+            <div class="pagination">
+              <span class="page-info">共 86 条，每页显示：</span>
+              <select class="page-size" aria-label="每页显示">
+                <option>20 条/页</option>
+                <option>50 条/页</option>
+              </select>
+              <button class="page-btn">‹</button>
+              <button class="page-btn active">1</button>
+              <button class="page-btn">2</button>
+              <button class="page-btn">3</button>
+              <button class="page-btn">›</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="flow-panel">
+            <div class="flow-card">
+              <h3>任务状态流</h3>
+              <div class="flow-line">
+                <span class="state">待处理</span><span class="arrow">→</span>
+                <span class="state">处理中</span><span class="arrow">→</span>
+                <span class="state">待确认</span><span class="arrow">→</span>
+                <span class="state">已完成</span><span class="arrow">→</span>
+                <span class="state">已关闭</span>
+              </div>
+            </div>
+            <div class="flow-card">
+              <h3>事件状态流</h3>
+              <div class="flow-line">
+                <span class="state">新建</span><span class="arrow">→</span>
+                <span class="state">处理中</span><span class="arrow">→</span>
+                <span class="state">已恢复</span><span class="arrow">→</span>
+                <span class="state">已关闭</span>
+                <span class="state">P1 / P2 / P3 / P4</span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <aside class="drawer" aria-label="当前记录详情">
+        <div class="drawer-head">
+          <div class="selected-title">
+            <h3>INC-202606-0001</h3>
+            <p>支付服务异常峰值，需要跨团队协同</p>
+          </div>
+          <span class="pill danger">P1</span>
+        </div>
+
+        <dl class="detail-grid">
+          <dt>当前状态</dt><dd><span class="pill warn">处理中</span></dd>
+          <dt>影响范围</dt><dd>支付服务，3 台应用主机，1 个数据库实例</dd>
+          <dt>负责人</dt><dd>运维工程师：李明；研发：陈浩</dd>
+          <dt>当前值班</dt><dd>主值 李明，备值 赵晨</dd>
+          <dt>关联资产</dt><dd>ASSET-202606-0001、ASSET-202606-0004、MW-202606-0001</dd>
+          <dt>下一动作</dt><dd>确认数据库连接池与网关错误率，15 分钟内更新进展</dd>
+        </dl>
+
+        <div class="drawer-actions">
+          <button class="btn primary"><span class="ico">↗</span>更新进展</button>
+          <button class="btn ghost"><span class="ico">☰</span>关联任务</button>
+          <button class="btn"><span class="ico">◎</span>进入 War Room</button>
+        </div>
+
+        <div class="drawer-section">
+          <h4>响应流程</h4>
+          <div class="mini-flow">
+            <div class="mini-step">
+              <b>1</b>
+              <span>创建事件并关联资产、业务、等级、负责人</span>
+              <span class="pill success">完成</span>
+            </div>
+            <div class="mini-step">
+              <b>2</b>
+              <span>拉起值班与研发协同，自动派发排查任务</span>
+              <span class="pill warn">进行中</span>
+            </div>
+            <div class="mini-step">
+              <b>3</b>
+              <span>记录关键操作、结论、状态变化和恢复时间</span>
+              <span class="pill info">待更新</span>
+            </div>
+            <div class="mini-step">
+              <b>4</b>
+              <span>恢复后关闭事件并生成复盘入口</span>
+              <span class="pill">未开始</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-section">
+          <h4>事件时间线</h4>
+          <div class="timeline">
+            <div class="timeline-item">
+              <span>09:12</span>
+              <span>监控告警转入事件，等级确认为 P1</span>
+              <span class="pill danger">新建</span>
+            </div>
+            <div class="timeline-item">
+              <span>09:16</span>
+              <span>主值受理并关联支付服务资产</span>
+              <span class="pill warn">处理中</span>
+            </div>
+            <div class="timeline-item">
+              <span>09:24</span>
+              <span>研发加入 War Room，开始定位慢查询</span>
+              <span class="pill info">协同</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <section class="checks">
+      <article class="check-card">
+        <h3>一期范围确认</h3>
+        <ul>
+          <li>值班管理：按天、按周、主值、备值、换班申请与记录。</li>
+          <li>任务派发与跟踪：覆盖待处理、处理中、待确认、已完成、已关闭。</li>
+          <li>事件管理：覆盖 P1-P4、事件状态流与关联资产。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>权限边界</h3>
+        <ul>
+          <li>超级管理员拥有全部配置与处理权限。</li>
+          <li>运维工程师可查看协同事件、处理任务、跟进事件。</li>
+          <li>值班人员只读值班排班与本人相关待办。</li>
+        </ul>
+      </article>
+      <article class="check-card">
+        <h3>后续灰度</h3>
+        <ul>
+          <li>War Room 一期作为事件协同入口，复杂会议能力后续增强。</li>
+          <li>复盘闭环保留入口，先记录事件结论与关闭原因。</li>
+          <li>告警自动转事件与 AI 辅助总结在后续迭代接入。</li>
+        </ul>
+      </article>
+    </section>
+  </div>
+</body>
+</html>
