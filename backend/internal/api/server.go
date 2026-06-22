@@ -87,6 +87,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/users/{id}", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.userResource)))
 	mux.Handle("GET /api/security/credential-verification", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.credentialVerification)))
 	mux.Handle("PUT /api/security/credential-verification", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.credentialVerification)))
+	mux.Handle("POST /api/copilot/test-connection", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotTestConnection)))
 	mux.Handle("GET /api/assets", s.requirePermission(auth.PermissionAssetRead, http.HandlerFunc(s.assets)))
 	mux.Handle("POST /api/assets", s.requirePermission(auth.PermissionAssetWrite, http.HandlerFunc(s.assets)))
 	mux.Handle("PUT /api/assets/{id}", s.requirePermission(auth.PermissionAssetWrite, http.HandlerFunc(s.assetResource)))

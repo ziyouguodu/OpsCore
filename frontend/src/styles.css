@@ -25,7 +25,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .auth-app .main { min-height: 100vh; padding: 0; }
 .sidebar { background: rgba(7, 14, 26, .96); border-right: 1px solid var(--border); padding: 18px 12px; overflow-y: auto; box-shadow: 12px 0 34px rgba(0, 0, 0, .18); }
 .brand { display: flex; align-items: center; gap: 11px; margin: 0 8px 22px; font-size: 20px; font-weight: 800; color: var(--text); }
-.brand img { width: 38px; height: 38px; border-radius: 10px; background: #fff; }
+.brand img { width: 38px; height: 38px; border-radius: 10px; background: transparent; object-fit: contain; box-shadow: 0 0 18px rgba(56, 189, 248, .18); }
 .sidebar-toggle { margin-left: auto; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); font-weight: 800; }
 .sidebar-toggle:hover { border-color: var(--blue); color: #fff; background: #123456; }
 .side-section { margin: 16px 10px 8px; color: var(--muted-2); font-size: 12px; font-weight: 800; letter-spacing: 0; }
@@ -46,6 +46,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .nav-icon, .child-icon { display: grid; place-items: center; border-radius: 8px; color: #9fdcff; background: rgba(15, 23, 42, .72); border: 1px solid var(--border-strong); flex: 0 0 auto; }
 .nav-icon { width: 26px; height: 26px; }
 .child-icon { width: 22px; height: 22px; color: #7dd3fc; background: rgba(56, 189, 248, .08); border-color: rgba(56, 189, 248, .22); }
+.copilot-icon-img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.child-icon .copilot-icon-img { width: 22px; height: 22px; border-radius: 7px; }
 .disabled .child-icon { color: #5f718a; background: rgba(15, 23, 42, .7); border-color: var(--border); }
 .sidebar-collapsed .sidebar { padding-inline: 12px; overflow: hidden; }
 .sidebar-collapsed .brand { justify-content: center; margin-inline: 0; gap: 0; }
@@ -79,7 +81,7 @@ p { margin: 0; color: var(--muted); }
 .auth-screen::before { content: ""; position: absolute; inset: 7% 43% 8% 4%; border: 1px solid rgba(91, 141, 185, .12); border-radius: 28px; background: linear-gradient(135deg, rgba(15, 23, 42, .2), transparent); pointer-events: none; }
 .auth-hero { position: relative; z-index: 1; max-width: 780px; }
 .auth-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 54px; font-size: 22px; font-weight: 800; letter-spacing: 0; }
-.auth-brand img { width: 46px; height: 46px; border-radius: 12px; background: #fff; object-fit: cover; }
+.auth-brand img { width: 46px; height: 46px; border-radius: 12px; background: transparent; object-fit: contain; box-shadow: 0 0 22px rgba(56, 189, 248, .2); }
 .auth-hero h1 { margin: 0; max-width: 780px; color: #fff; font-size: 64px; line-height: 1.05; letter-spacing: 0; font-weight: 900; }
 .auth-hero p { margin: 22px 0 0; max-width: 760px; color: #b8c7db; font-size: 18px; line-height: 1.68; font-weight: 650; }
 .auth-command-map { position: relative; height: 330px; max-width: 760px; margin-top: 44px; }
@@ -267,7 +269,9 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .clickable-row { cursor: pointer; }
 .clickable-row:hover td, .clickable-row:focus-visible td { background: rgba(56, 189, 248, .08); }
 .clickable-row:focus-visible { outline: 2px solid #b8d0ff; outline-offset: -2px; }
-.row-actions { display: flex; align-items: center; gap: 10px; }
+td.row-actions { min-width: 132px; vertical-align: middle; }
+td.row-actions .link { min-height: 30px; display: inline-flex; align-items: center; padding: 0; border: 0; text-decoration: none; box-shadow: none; font-weight: 800; }
+td.row-actions .link + .link { margin-left: 10px; }
 .empty { text-align: center; color: var(--muted); padding: 22px 10px; }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 12px; color: var(--muted); }
 .pager select { width: auto; min-width: 108px; }
@@ -285,10 +289,12 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .role-card p { margin: 0; color: #c7d2e4; line-height: 1.55; }
 .role-line-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; color: #b9e8ff; background: rgba(15, 23, 42, .72); border: 1px solid var(--border-strong); }
 .role-line-icon svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.role-line-icon .copilot-icon-img { width: 40px; height: 40px; border-radius: 8px; }
 .permission-workspace { margin-bottom: 14px; }
 .permission-matrix { margin-top: 14px; }
 .gray-roles { margin-top: 14px; }
 .section-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+.section-head.actions-only { justify-content: flex-end; }
 .section-head > div:first-child { min-width: 0; padding-top: 4px; }
 .section-head p { max-width: 920px; line-height: 1.6; }
 .status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -367,6 +373,7 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .records-head { margin-top: 4px; }
 .duty-center { position: relative; display: grid; gap: 14px; min-height: 720px; margin-bottom: 14px; padding: 16px; border: 1px solid rgba(51, 80, 120, .78); border-radius: 12px; overflow: hidden; background: linear-gradient(135deg, rgba(9, 17, 31, .96), rgba(10, 23, 42, .94)); box-shadow: 0 18px 50px rgba(0,0,0,.22); }
 .duty-integrated-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.duty-integrated-head.status-only { justify-content: flex-end; padding-bottom: 0; border-bottom: 0; }
 .duty-integrated-head h2 { margin: 0 0 6px; font-size: 24px; }
 .duty-integrated-head p { max-width: 760px; line-height: 1.6; }
 .duty-status-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
@@ -463,8 +470,7 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .duty-card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 .duty-filter-row { max-width: 340px; }
 .duty-table-wrap tbody tr { cursor: default; }
-.duty-table-wrap .row-actions { justify-content: flex-start; gap: 0; min-width: 76px; }
-.duty-table-wrap .row-actions .link { min-height: 30px; display: inline-flex; align-items: center; padding: 0; border: 0; text-decoration: none; box-shadow: none; font-weight: 800; }
+.duty-table-wrap td.row-actions { min-width: 76px; }
 .duty-table-person { display: inline-flex; align-items: center; gap: 9px; }
 .duty-table-person b { width: 28px; height: 28px; border-radius: 50%; }
 .duty-handover-list { display: grid; gap: 10px; }
@@ -526,6 +532,14 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .config-title { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .config-title h3 { margin-bottom: 4px; }
 .copilot-form { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.connection-result { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 12px; padding: 11px 12px; border-radius: 9px; border: 1px solid var(--border); background: rgba(9, 17, 31, .62); }
+.connection-result div { display: grid; gap: 3px; }
+.connection-result strong { font-size: 13px; }
+.connection-result span, .connection-result small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.connection-result.success { border-color: rgba(45, 212, 191, .38); background: rgba(20, 184, 166, .08); }
+.connection-result.success strong { color: #99f6e4; }
+.connection-result.danger { border-color: rgba(251, 113, 133, .42); background: rgba(251, 113, 133, .08); }
+.connection-result.danger strong { color: #fecdd3; }
 .context-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
 .context-grid .inline-check { min-height: 44px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(9, 17, 31, .45); color: #dbe6f4; }
 .ai-guardrails { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -555,7 +569,10 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .copilot-title strong, .copilot-title small { display: block; }
 .copilot-title small { margin-top: 2px; color: rgba(255,255,255,.72); font-size: 12px; }
 .copilot-logo, .copilot-actions button { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #fff; background: rgba(255,255,255,.12); }
+.copilot-logo { overflow: hidden; background: #07111f; border: 1px solid rgba(125, 211, 252, .25); box-shadow: 0 0 18px rgba(37, 99, 235, .2); }
 .copilot-logo svg, .copilot-actions svg, .copilot-button svg { width: 17px; height: 17px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.copilot-logo svg, .copilot-button svg { width: 22px; height: 22px; filter: drop-shadow(0 0 8px rgba(45, 212, 191, .34)); }
+.copilot-logo .copilot-icon-img { width: 32px; height: 32px; border-radius: 8px; }
 .copilot-actions { display: flex; align-items: center; gap: 8px; }
 .copilot-actions button { border-radius: 50%; }
 .copilot-body { min-height: 230px; overflow: auto; padding: 14px 18px 8px; }
@@ -565,7 +582,8 @@ tr.selected td { background: rgba(56, 189, 248, .08); }
 .chat.ai { margin-right: 50px; color: #dbe6f4; background: rgba(56, 189, 248, .08); border: 1px solid rgba(56, 189, 248, .22); }
 .copilot-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
 .copilot-input input { width: 100%; }
-.copilot-button { position: fixed; right: 24px; bottom: 24px; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #2563eb, #6d5bd0); box-shadow: 0 14px 34px rgba(37,99,235,.34); }
+.copilot-button { position: fixed; right: 24px; bottom: 24px; display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border-radius: 18px; overflow: hidden; color: #c7fbff; background: #07111f; border: 1px solid rgba(125, 211, 252, .34); box-shadow: 0 16px 38px rgba(37,99,235,.38), 0 0 0 6px rgba(14, 165, 233, .08); }
+.copilot-button .copilot-icon-img { width: 64px; height: 64px; border-radius: 18px; }
 @media (max-width: 1040px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { display: none; }

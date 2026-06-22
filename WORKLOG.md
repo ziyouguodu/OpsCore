@@ -1,5 +1,22 @@
 # WORKLOG.md
 
+## 2026-06-22 14:52 CST - 任务与事件列表分页和表格横线修正
+
+- 修复全局表格操作列样式：`td.row-actions` 不再使用 `display:flex`，避免操作列破坏表格单元格导致横线错位。
+- 操作列按钮改为在标准表格单元格内以 inline-flex 排列，资产、中间件、值班、任务、事件和用户列表统一受益。
+- 任务跟踪页面新增分页状态、分页计算和分页控件，列表数据改为 `pagedTasks` 渲染，并补充空状态。
+- 事件管理页面新增分页状态、分页计算和分页控件，列表数据改为 `pagedIncidents` 渲染，并补充空状态。
+- 任务/事件分页条调整为表格容器外、列表列内，结构参照资产台账页面，避免分页条落入表格边框或成为详情布局的独立列。
+- `AGENTS.md` 新增表格页面检查规则：主业务管理列表需提供分页，操作列不能改变 `td` 的 table-cell 行为，交付前需核查表头、行高、横线、操作列、空状态和分页条。
+
+## 2026-06-22 09:08 CST - 页面标题描述层级收口
+
+- 恢复值班管理页面的顶层 `topbar`，使其与资产台账、中间件、任务、事件、权限和 AI 配置等页面保持一致。
+- 将值班管理顶层描述改为“面向事件响应连续性，统一管理当前值班、排班日历、交接日志与升级策略。”
+- 移除各业务页面内容区 `section-head` 中重复的页面级描述，仅保留操作按钮、状态标签和业务内容。
+- 移除值班管理内部重复的“值班管理”头部与各子 Tab/卡片头部说明，保留子区块标题、状态、数据和操作。
+- `AGENTS.md` 新增 UI 约定：页面级标题和描述只保留在顶层 `topbar`，内容区不再重复解释。
+
 ## 2026-06-18 16:03 CST - 团队配置删除与页面核查约定
 
 - 值班管理的团队配置弹窗新增“删除”操作，空团队可直接移除。
@@ -254,3 +271,18 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
   - 后端 `mustChangePassword` 门禁会阻止未初始化密码用户访问业务 API，仅允许 `/api/auth/me` 和 `/api/auth/password`。
   - 资产与实例凭据查看使用统一二次校验密码；未配置统一密码时回退当前登录密码，符合现有权限与用户体验边界。
 - 最终端口 `curl` 复检因本次外部执行额度限制未能再次执行；已通过 Docker Compose 状态确认容器运行。
+
+## 2026-06-22 - AI Copilot 配置增加连接测试
+
+- 后端新增 `POST /api/copilot/test-connection`，仅超级管理员可调用，用于验证填写的模型接口地址、模型名称和 API Key 是否可真实访问。
+- 连接测试支持 OpenAI GPT、OpenAI 兼容接口、Anthropic Claude、Google Gemini 和本地 Ollama 风格模型服务；返回连接是否可用、HTTP 状态码、响应延迟和失败原因。
+- 连接测试只使用本次请求中的 API Key 发起验证，不持久化密钥，也不会在接口响应中回显密钥。
+- 前端 AI Copilot 配置页新增“测试连接”按钮和测试结果状态条，测试中会禁用按钮，成功/失败会给出明确反馈。
+- `AGENTS.md` 已补充 AI Copilot 连接测试的权限、密钥不落地和不泄露规则。
+- 验证结果：
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `npm run build` 通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过；默认初始化密码已失效，符合管理员密码已初始化后的本地状态。
+  - 容器内新接口已验证：缺少 hosted provider API Key 时返回 400。

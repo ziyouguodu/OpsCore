@@ -6,5 +6,5 @@ backend/opscore-api
 backend/.gocache/
 *.log
 .env
-*/.DS_Store
+.DS_Store
 

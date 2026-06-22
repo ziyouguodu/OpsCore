@@ -313,10 +313,19 @@ const copilotConfig = reactive({
   enableOncallContext: true,
   auditEnabled: true
 })
+const copilotConnection = reactive({
+  testing: false,
+  ok: null,
+  message: '',
+  latencyMs: null,
+  statusCode: null
+})
 const assetFilters = reactive({ keyword: '', type: '', environment: '', business: '', networkZone: '', advanced: false })
 const middlewareFilters = reactive({ keyword: '', kind: '', environment: '', business: '', networkZone: '', status: '', advanced: false })
 const assetPager = reactive({ page: 1, pageSize: 10 })
 const middlewarePager = reactive({ page: 1, pageSize: 10 })
+const taskPager = reactive({ page: 1, pageSize: 10 })
+const incidentPager = reactive({ page: 1, pageSize: 10 })
 
 const menu = [
   { id: 'dashboard', label: '首页仪表盘', icon: 'dashboard', enabled: true },
@@ -353,7 +362,7 @@ const menu = [
     label: '系统配置',
     icon: 'settings',
     children: [
-      { id: 'copilot-settings', label: 'AI Copilot 配置', icon: 'bot', enabled: true },
+      { id: 'copilot-settings', label: 'AI Copilot 配置', icon: 'copilot', enabled: true },
       { label: '通知渠道', icon: 'bell', enabled: false },
       { label: '审计策略', icon: 'audit', enabled: false }
     ]
@@ -402,7 +411,7 @@ const activeSubtitle = computed(() => {
     dashboard: '围绕业务连续性汇总健康、影响、待办和事件风险。',
     cmdb: '维护服务器资产、部署信息、网络区域和受控登录信息。',
     middleware: '管理数据库、中间件与组件实例，补齐部署位置和影响范围。',
-    oncall: '确认主值、备值、轮换规则和换班记录。',
+    oncall: '面向事件响应连续性，统一管理当前值班、排班日历、交接日志与升级策略。',
     tasks: '跟踪派发、处理、确认、完成和关闭的任务闭环。',
     incidents: '按 P1-P4 管理影响、状态、恢复和复盘动作。',
     permissions: permissionTab.value === 'resources'
@@ -641,8 +650,12 @@ const filteredAssets = computed(() => filterRows(displayAssets.value, assetFilte
 const filteredMiddleware = computed(() => filterRows(displayMiddleware.value, middlewareFilters, ['name', 'kind', 'endpoint', 'business', 'owner']))
 const assetPageCount = computed(() => pageCount(filteredAssets.value.length, assetPager.pageSize))
 const middlewarePageCount = computed(() => pageCount(filteredMiddleware.value.length, middlewarePager.pageSize))
+const taskPageCount = computed(() => pageCount(displayTasks.value.length, taskPager.pageSize))
+const incidentPageCount = computed(() => pageCount(displayIncidents.value.length, incidentPager.pageSize))
 const pagedAssets = computed(() => paginate(filteredAssets.value, assetPager))
 const pagedMiddleware = computed(() => paginate(filteredMiddleware.value, middlewarePager))
+const pagedTasks = computed(() => paginate(displayTasks.value, taskPager))
+const pagedIncidents = computed(() => paginate(displayIncidents.value, incidentPager))
 const roleCards = [
   { code: 'super_admin', name: '超级管理员', icon: 'shield', tone: 'blue', desc: '拥有用户、角色、资产、协同事件、敏感凭据策略和系统配置全部权限。' },
   { code: 'ops_engineer', name: '运维工程师', icon: 'change', tone: 'green', desc: '可维护资产和实例信息，查看值班情况，处理任务，并跟进事件。' }
@@ -1588,6 +1601,53 @@ function selectCopilotProvider(provider) {
   } else {
     copilotConfig.model = provider.models[0]
   }
+  resetCopilotConnection()
+}
+
+function selectCopilotProviderByID() {
+  selectCopilotProvider(selectedCopilotProvider.value)
+}
+
+function resetCopilotConnection() {
+  Object.assign(copilotConnection, { testing: false, ok: null, message: '', latencyMs: null, statusCode: null })
+}
+
+async function testCopilotConnection() {
+  if (!canManageUsers.value) {
+    error.value = '只有超级管理员可以测试 AI Copilot 模型连接'
+    return
+  }
+  Object.assign(copilotConnection, { testing: true, ok: null, message: '', latencyMs: null, statusCode: null })
+  try {
+    const result = await api('/copilot/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: copilotConfig.provider,
+        endpoint: copilotConfig.endpoint,
+        model: copilotConfig.model,
+        apiKey: copilotConfig.apiKey,
+        localEndpoint: copilotConfig.localEndpoint,
+        localModel: copilotConfig.localModel
+      })
+    })
+    Object.assign(copilotConnection, {
+      testing: false,
+      ok: result.ok,
+      message: result.message,
+      latencyMs: result.latencyMs,
+      statusCode: result.statusCode || null
+    })
+    error.value = result.ok ? 'AI Copilot 连接测试通过' : `AI Copilot 连接测试未通过：${result.message}`
+  } catch (err) {
+    Object.assign(copilotConnection, {
+      testing: false,
+      ok: false,
+      message: err.message || '连接测试失败',
+      latencyMs: null,
+      statusCode: null
+    })
+    error.value = `AI Copilot 连接测试失败：${copilotConnection.message}`
+  }
 }
 
 function saveCopilotConfig() {
@@ -2233,7 +2293,7 @@ onMounted(() => {
   <div class="app" :class="{ 'auth-app': !hasAppAccess, 'sidebar-collapsed': hasAppAccess && sidebarCollapsed }">
     <aside v-if="hasAppAccess" class="sidebar">
       <div class="brand">
-        <img src="/logo.png" alt="OpsCore logo" />
+        <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
         <span>OpsCore</span>
         <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '展开菜单' : '收起菜单'" @click="sidebarCollapsed = !sidebarCollapsed">
           {{ sidebarCollapsed ? '>' : '<' }}
@@ -2262,7 +2322,10 @@ onMounted(() => {
             :title="child.label"
             @click="goToView(child.id, child.permissionTab)"
           >
-            <span class="child-icon"><svg viewBox="0 0 24 24"><path v-for="path in iconPath(child.icon)" :key="path" :d="path" /></svg></span>
+            <span class="child-icon">
+              <img v-if="child.icon === 'copilot'" class="copilot-icon-img" src="/copilot-root-cause-icon.png" alt="" />
+              <svg v-else viewBox="0 0 24 24"><path v-for="path in iconPath(child.icon)" :key="path" :d="path" /></svg>
+            </span>
             <span>{{ child.label }}</span>
             <em>{{ child.enabled ? '一期' : '灰度' }}</em>
           </button>
@@ -2271,7 +2334,7 @@ onMounted(() => {
     </aside>
 
     <main class="main">
-      <header v-if="hasAppAccess && activeView !== 'oncall'" class="topbar">
+      <header v-if="hasAppAccess" class="topbar">
         <div>
           <span class="breadcrumb">{{ activeBreadcrumb }}</span>
           <h1>{{ activeTitle }}</h1>
@@ -2290,7 +2353,7 @@ onMounted(() => {
       <section v-if="!auth.token" class="auth-screen">
         <div class="auth-hero">
           <div class="auth-brand">
-            <img src="/logo.png" alt="OpsCore logo" />
+            <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
             <span>OpsCore</span>
           </div>
           <h1>智能运维中枢指挥平台</h1>
@@ -2339,7 +2402,7 @@ onMounted(() => {
       <section v-else-if="authPending" class="auth-screen auth-loading">
         <div class="auth-hero">
           <div class="auth-brand">
-            <img src="/logo.png" alt="OpsCore logo" />
+            <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
             <span>OpsCore</span>
           </div>
           <h1>正在恢复控制台会话</h1>
@@ -2357,7 +2420,7 @@ onMounted(() => {
       <section v-else-if="needsInitialPassword" class="auth-screen">
         <div class="auth-hero">
           <div class="auth-brand">
-            <img src="/logo.png" alt="OpsCore logo" />
+            <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
             <span>OpsCore</span>
           </div>
           <h1>初始化安全访问</h1>
@@ -2490,10 +2553,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'cmdb'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">录入服务器与基础资产信息，维护配置规格、网络区域、所属业务、部署信息、负责人、状态和受控登录信息。</p>
-            </div>
+          <div class="section-head actions-only">
             <div class="page-actions">
               <button disabled><span class="btn-icon">↥</span>导入</button>
               <button v-if="selectedAsset" @click="exportAsset(selectedAsset)"><span class="btn-icon">↧</span>导出</button>
@@ -2628,10 +2688,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'middleware'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">一期类型：MySQL、Redis、Kafka、PostgreSQL、达梦、Nginx、ElasticSearch、Nacos、RocketMQ、MinIO。</p>
-            </div>
+          <div class="section-head actions-only">
             <div class="page-actions">
               <button disabled><span class="btn-icon">↥</span>导入</button>
               <button v-if="selectedMiddleware" @click="exportMiddleware(selectedMiddleware)"><span class="btn-icon">↧</span>导出</button>
@@ -2765,11 +2822,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'oncall'" class="duty-center">
-          <div class="duty-integrated-head">
-            <div>
-              <h2>值班管理</h2>
-              <p>面向事件响应连续性，统一管理当前值班、排班日历、交接日志与升级策略。</p>
-            </div>
+          <div class="duty-integrated-head status-only">
             <div class="duty-status-strip">
               <span class="pill success">当前值班正常</span>
               <span>今日已处理 14 个告警</span>
@@ -2800,7 +2853,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>值班概览</h2>
-                    <p>2026年6月10日 · 今日值班情况一览</p>
                   </div>
                   <div class="duty-page-actions">
                     <button class="primary" @click="quickDutyTakeover">立即接班</button>
@@ -2845,7 +2897,6 @@ onMounted(() => {
                     <div class="duty-panel-head">
                       <div>
                         <h3>当前值班</h3>
-                        <p>ON DUTY</p>
                       </div>
                       <button @click="setDutySection('roster')">查看全部</button>
                     </div>
@@ -2866,7 +2917,6 @@ onMounted(() => {
                     <div class="duty-panel-head">
                       <div>
                         <h3>即将值班（未来3天）</h3>
-                        <p>点击日期分配或调整值班</p>
                       </div>
                       <button @click="setDutySection('calendar')">查看完整日历</button>
                     </div>
@@ -2884,7 +2934,6 @@ onMounted(() => {
                   <div class="duty-panel-head">
                     <div>
                       <h3>统计报表</h3>
-                      <p>值班覆盖率、响应效率、替班情况和满意度分析</p>
                     </div>
                     <select><option>本月</option><option>本周</option><option>本季度</option></select>
                   </div>
@@ -2908,7 +2957,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>排班日历</h2>
-                    <p>6月 2026 · 点击日期分配或调整值班</p>
                   </div>
                   <div class="duty-calendar-tools">
                     <button @click="moveDutyMonth(-1)">上一月</button>
@@ -2939,7 +2987,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>排班配置</h2>
-                    <p>管理值班模板、轮换规则和人员安排</p>
                   </div>
                   <button class="primary" :disabled="!canWriteOncall" @click="openCreateDutyScheduleModal">新建排班</button>
                 </div>
@@ -2964,7 +3011,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>值班人员列表</h2>
-                    <p>管理人员、团队、角色、值班次数和下一班次</p>
                   </div>
                   <button class="primary" :disabled="!canWriteOncall" @click="openAddDutyPerson">添加人员</button>
                 </div>
@@ -2993,7 +3039,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>交接班日志</h2>
-                    <p>记录交接内容，确保信息连续性</p>
                   </div>
                   <button class="primary" @click="openDutyHandoverModal">提交交接</button>
                 </div>
@@ -3013,7 +3058,6 @@ onMounted(() => {
                 <div class="duty-page-head">
                   <div>
                     <h2>升级策略</h2>
-                    <p>配置告警升级路径与响应时限</p>
                   </div>
                   <button class="primary" @click="dutyEscalationModalOpen = true">编辑策略</button>
                 </div>
@@ -3021,7 +3065,6 @@ onMounted(() => {
                   <div class="duty-panel-head">
                     <div>
                       <h3>P1 严重告警升级流程（基础运维组）</h3>
-                      <p>主值班未响应时，按时间窗口逐级升级。</p>
                     </div>
                   </div>
                   <div class="duty-escalation-flow">
@@ -3129,10 +3172,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'tasks'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">聚焦任务派发、负责人处理、关联事件/资产和状态闭环。</p>
-            </div>
+          <div class="section-head actions-only">
             <div class="page-actions">
               <span class="pill">未关闭 {{ activeTasks.length }}</span>
               <button class="primary" @click="openTaskForm"><span class="btn-icon">＋</span>创建任务</button>
@@ -3158,20 +3198,30 @@ onMounted(() => {
             </div>
           </section>
           <div class="work-layout" :class="{ 'single-column': !currentTask }">
-            <div class="table-wrap">
+            <section>
+              <div class="table-wrap">
               <table>
                 <thead><tr><th>标题</th><th>负责人</th><th>状态</th><th>截止时间</th><th>操作</th></tr></thead>
                 <tbody>
-                  <tr v-for="task in displayTasks" :key="task.id" :class="{ selected: currentTask?.id === task.id }" class="clickable-row" tabindex="0" @click="chooseTask(task)" @keyup.enter="chooseTask(task)">
+                  <tr v-for="task in pagedTasks" :key="task.id" :class="{ selected: currentTask?.id === task.id }" class="clickable-row" tabindex="0" @click="chooseTask(task)" @keyup.enter="chooseTask(task)">
                     <td>{{ task.title }}</td>
                     <td>{{ task.assignee || '-' }}</td>
                     <td><span class="pill">{{ task.status }}</span></td>
                     <td>{{ task.dueAt || '-' }}</td>
                     <td class="row-actions"><button class="link" @click.stop="chooseTask(task)">详情</button><button class="link" :disabled="isSampleRecord(task)" @click.stop="editTask(task)">编辑</button><button class="link danger-text" :disabled="isSampleRecord(task)" @click.stop="deleteTask(task)">删除</button></td>
                   </tr>
+                  <tr v-if="!pagedTasks.length"><td colspan="5" class="empty">暂无任务记录</td></tr>
                 </tbody>
               </table>
-            </div>
+              </div>
+              <div class="pager">
+                <span>共 {{ displayTasks.length }} 条，每页显示：</span>
+                <select v-model.number="taskPager.pageSize" @change="taskPager.page = 1"><option :value="10">10 条/页</option><option :value="20">20 条/页</option><option :value="50">50 条/页</option></select>
+                <button @click="setPage(taskPager, taskPager.page - 1, taskPageCount)">‹</button>
+                <button v-for="page in taskPageCount" :key="page" :class="{ active: page === taskPager.page }" @click="setPage(taskPager, page, taskPageCount)">{{ page }}</button>
+                <button @click="setPage(taskPager, taskPager.page + 1, taskPageCount)">›</button>
+              </div>
+            </section>
             <aside class="detail-card" v-if="currentTask">
               <div class="detail-title">
                 <h3>{{ currentTask.title }}</h3>
@@ -3198,10 +3248,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'incidents'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">覆盖 P1-P4、影响范围、关联资产、War Room、恢复关闭与复盘入口。</p>
-            </div>
+          <div class="section-head actions-only">
             <div class="page-actions">
               <span class="pill danger">活跃事件 {{ activeIncidents.length }}</span>
               <button class="primary" @click="openIncidentForm"><span class="btn-icon">＋</span>新建事件</button>
@@ -3230,11 +3277,12 @@ onMounted(() => {
             </div>
           </section>
           <div class="work-layout" :class="{ 'single-column': !currentIncident }">
-            <div class="table-wrap">
+            <section>
+              <div class="table-wrap">
               <table>
                 <thead><tr><th>事件</th><th>等级</th><th>状态</th><th>负责人</th><th>业务</th><th>操作</th></tr></thead>
                 <tbody>
-                  <tr v-for="incident in displayIncidents" :key="incident.id" :class="{ selected: currentIncident?.id === incident.id }" class="clickable-row" tabindex="0" @click="chooseIncident(incident)" @keyup.enter="chooseIncident(incident)">
+                  <tr v-for="incident in pagedIncidents" :key="incident.id" :class="{ selected: currentIncident?.id === incident.id }" class="clickable-row" tabindex="0" @click="chooseIncident(incident)" @keyup.enter="chooseIncident(incident)">
                     <td>{{ incident.title }}</td>
                     <td><span class="pill danger">{{ incident.level }}</span></td>
                     <td><span class="pill">{{ incident.status }}</span></td>
@@ -3242,9 +3290,18 @@ onMounted(() => {
                     <td>{{ incident.business || '-' }}</td>
                     <td class="row-actions"><button class="link" @click.stop="chooseIncident(incident)">详情</button><button class="link" :disabled="isSampleRecord(incident)" @click.stop="editIncident(incident)">编辑</button><button class="link danger-text" :disabled="isSampleRecord(incident)" @click.stop="deleteIncident(incident)">删除</button></td>
                   </tr>
+                  <tr v-if="!pagedIncidents.length"><td colspan="6" class="empty">暂无事件记录</td></tr>
                 </tbody>
               </table>
-            </div>
+              </div>
+              <div class="pager">
+                <span>共 {{ displayIncidents.length }} 条，每页显示：</span>
+                <select v-model.number="incidentPager.pageSize" @change="incidentPager.page = 1"><option :value="10">10 条/页</option><option :value="20">20 条/页</option><option :value="50">50 条/页</option></select>
+                <button @click="setPage(incidentPager, incidentPager.page - 1, incidentPageCount)">‹</button>
+                <button v-for="page in incidentPageCount" :key="page" :class="{ active: page === incidentPager.page }" @click="setPage(incidentPager, page, incidentPageCount)">{{ page }}</button>
+                <button @click="setPage(incidentPager, incidentPager.page + 1, incidentPageCount)">›</button>
+              </div>
+            </section>
             <aside class="detail-card" v-if="currentIncident">
               <div class="detail-title">
                 <h3>{{ currentIncident.level }} · {{ currentIncident.title }}</h3>
@@ -3274,10 +3331,7 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'permissions'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">{{ permissionTab === 'resources' ? '一期先展示菜单入口、资源范围和角色权限边界，配置能力后续再细化。' : '一期先启用超级管理员和运维工程师，其他角色与 SSO/LDAP 保留灰度入口。' }}</p>
-            </div>
+          <div class="section-head actions-only">
             <div class="page-actions">
               <span class="pill">账号密码登录</span>
               <button v-if="canManageUsers && permissionTab === 'users'" class="primary" @click="openUserForm"><span class="btn-icon">＋</span>新增用户</button>
@@ -3399,15 +3453,15 @@ onMounted(() => {
         </section>
 
         <section v-if="activeView === 'copilot-settings'" class="panel">
-          <div class="section-head">
-            <div>
-              <p class="muted">一期先明确模型来源、上下文授权和审计边界；真实密钥托管、调用代理和用量统计后续接入后端。</p>
+            <div class="section-head actions-only">
+              <div class="page-actions">
+                <span class="pill success">建议态 AI</span>
+                <button :disabled="!canManageUsers || copilotConnection.testing" @click="testCopilotConnection">
+                  {{ copilotConnection.testing ? '测试中...' : '测试连接' }}
+                </button>
+                <button class="primary" @click="saveCopilotConfig">保存配置</button>
+              </div>
             </div>
-            <div class="page-actions">
-              <span class="pill success">建议态 AI</span>
-              <button class="primary" @click="saveCopilotConfig">保存配置</button>
-            </div>
-          </div>
 
           <div class="copilot-config-layout">
             <section class="provider-grid">
@@ -3425,7 +3479,7 @@ onMounted(() => {
 
             <section class="config-card">
               <div class="config-title">
-                <span class="role-line-icon"><svg viewBox="0 0 24 24"><path v-for="path in iconPath('bot')" :key="path" :d="path" /></svg></span>
+                <span class="role-line-icon"><img class="copilot-icon-img" src="/copilot-root-cause-icon.png" alt="" /></span>
                 <div>
                   <h3>{{ selectedCopilotProvider.name }}</h3>
                   <p class="muted">{{ selectedCopilotProvider.desc }}</p>
@@ -3433,7 +3487,7 @@ onMounted(() => {
               </div>
               <div class="form-grid copilot-form">
                 <label>模型厂商
-                  <select v-model="copilotConfig.provider">
+                  <select v-model="copilotConfig.provider" @change="selectCopilotProviderByID">
                     <option value="local">本地模型</option>
                     <option value="openai">OpenAI GPT</option>
                     <option value="anthropic">Anthropic Claude</option>
@@ -3463,6 +3517,19 @@ onMounted(() => {
                   <input v-model="copilotConfig.maxTokens" />
                 </label>
               </div>
+              <div
+                v-if="copilotConnection.message"
+                :class="['connection-result', copilotConnection.ok ? 'success' : 'danger']"
+              >
+                <div>
+                  <strong>{{ copilotConnection.ok ? '连接可用' : '连接未通过' }}</strong>
+                  <span>{{ copilotConnection.message }}</span>
+                </div>
+                <small v-if="copilotConnection.latencyMs !== null">
+                  响应 {{ copilotConnection.latencyMs }} ms
+                  <template v-if="copilotConnection.statusCode"> · HTTP {{ copilotConnection.statusCode }}</template>
+                </small>
+              </div>
             </section>
 
             <section class="config-card">
@@ -3489,7 +3556,7 @@ onMounted(() => {
     <section v-if="hasAppAccess && copilotOpen" class="copilot" :class="{ expanded: copilotExpanded }">
       <header>
         <div class="copilot-title">
-          <span class="copilot-logo"><svg viewBox="0 0 24 24"><path v-for="path in iconPath('bot')" :key="path" :d="path" /></svg></span>
+          <span class="copilot-logo"><img class="copilot-icon-img" src="/copilot-root-cause-icon.png" alt="" /></span>
           <div>
             <strong>OpsCore AI Copilot</strong>
             <small>资产、事件、值班与任务助手</small>
@@ -3514,7 +3581,7 @@ onMounted(() => {
       </div>
     </section>
     <button v-else-if="hasAppAccess" class="copilot-button" title="打开 AI Copilot" @click="openCopilot">
-      <svg viewBox="0 0 24 24"><path v-for="path in iconPath('bot')" :key="path" :d="path" /></svg>
+      <img class="copilot-icon-img" src="/copilot-root-cause-icon.png" alt="" />
     </button>
   </div>
 </template>
