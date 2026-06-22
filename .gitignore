@@ -7,4 +7,3 @@ backend/.gocache/
 *.log
 .env
 .DS_Store
-
