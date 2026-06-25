@@ -76,6 +76,23 @@ type MiddlewareCredential struct {
 	Notes        string `json:"notes"`
 }
 
+type CopilotConfig struct {
+	Provider              string `json:"provider"`
+	Endpoint              string `json:"endpoint"`
+	Model                 string `json:"model"`
+	APIKey                string `json:"apiKey,omitempty"`
+	HasAPIKey             bool   `json:"hasApiKey"`
+	LocalEndpoint         string `json:"localEndpoint"`
+	LocalModel            string `json:"localModel"`
+	Temperature           string `json:"temperature"`
+	MaxTokens             string `json:"maxTokens"`
+	EnableAssetContext    bool   `json:"enableAssetContext"`
+	EnableIncidentContext bool   `json:"enableIncidentContext"`
+	EnableTaskContext     bool   `json:"enableTaskContext"`
+	EnableOncallContext   bool   `json:"enableOncallContext"`
+	AuditEnabled          bool   `json:"auditEnabled"`
+}
+
 type MiddlewareInstance struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`

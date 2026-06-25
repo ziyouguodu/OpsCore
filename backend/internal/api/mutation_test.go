@@ -41,6 +41,7 @@ type mutationStore struct {
 	credentialVerifyPassword   string
 	credentialVerifyConfigured string
 	credentialVerifyChecks     []string
+	copilotConfig              models.CopilotConfig
 }
 
 func (s *mutationStore) Authenticate(context.Context, string, string) (models.User, bool, error) {
@@ -421,6 +422,21 @@ func (s *mutationStore) GetMiddlewareCredential(_ context.Context, id int64) (mo
 func (s *mutationStore) UpsertMiddlewareCredential(_ context.Context, item models.MiddlewareCredential) (models.MiddlewareCredential, error) {
 	s.middlewareCred = item
 	return item, nil
+}
+func (s *mutationStore) GetCopilotConfig(context.Context) (models.CopilotConfig, error) {
+	item := s.copilotConfig
+	item.APIKey = ""
+	item.HasAPIKey = s.copilotConfig.APIKey != ""
+	return item, nil
+}
+func (s *mutationStore) UpsertCopilotConfig(_ context.Context, item models.CopilotConfig) (models.CopilotConfig, error) {
+	s.copilotConfig = item
+	item.APIKey = ""
+	item.HasAPIKey = s.copilotConfig.APIKey != ""
+	return item, nil
+}
+func (s *mutationStore) GetCopilotAPIKey(context.Context) (string, error) {
+	return s.copilotConfig.APIKey, nil
 }
 func (s *mutationStore) ListMiddleware(context.Context) ([]models.MiddlewareInstance, error) {
 	return []models.MiddlewareInstance{}, nil

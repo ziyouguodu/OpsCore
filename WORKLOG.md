@@ -1,5 +1,74 @@
 # WORKLOG.md
 
+## 2026-06-25 - AI Copilot Endpoint SSRF 防护加固
+
+- AI Copilot 配置保存与连接测试统一执行 Endpoint 地址策略校验，hosted provider 不能保存 loopback、私网、链路本地或云元数据服务地址。
+- 连接测试使用专用 HTTP Client：
+  - 禁用环境代理，避免通过代理绕过目标地址校验。
+  - 每次 HTTP 重定向重新校验目标 URL，并限制最多 5 次重定向。
+  - 请求拨号前解析域名并校验全部 IP；实际连接已校验的 IP，避免 DNS 重绑定窗口。
+  - 本地模型 provider 继续允许私网地址和 `host.docker.internal`，但仍拒绝云元数据服务和其他危险特殊地址。
+- 新增配置保存、重定向、hosted DNS 私网结果、本地私网模型和元数据 DNS 结果的回归测试。
+- 修正 `README.md` 中“后续增加后端密钥托管”的过时描述，明确密钥托管已完成。
+- 删除仍被 Git 跟踪的 `backend/cmd/.DS_Store` 和 `backend/internal/.DS_Store`；仓库已通过 `.gitignore` 持续忽略该类文件。
+- 验证结果：
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 通过，登录页与一期逐页点击巡检共 2 个用例通过。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建前端与后端镜像，前端、后端和 PostgreSQL 均处于运行状态。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - 运行态验证确认：hosted provider 保存私网 Endpoint 返回 400，响应未泄露测试 API Key。
+  - `git diff --check` 通过。
+
+## 2026-06-23 - 技术架构审查后修复项
+
+- 清理 Git 中误跟踪的 Go 构建缓存：`backend/.gocache/` 已从索引移除，后续继续由 `.gitignore` 忽略；本地测试建议使用 `.cache/go-build` 作为 `GOCACHE`。
+- 前端示例数据改为显式开关控制：新增 `VITE_ENABLE_DEMO_DATA`，默认 `false`；只有静态演示或无后端演示时才显示 sample 数据，避免真实生产空数据被样例数据掩盖。
+- Docker 构建链路同步 `VITE_ENABLE_DEMO_DATA` build arg，Compose 模板和前端模板默认均为关闭。
+- AI Copilot 连接测试增加服务端 Endpoint 访问限制：hosted provider 默认拒绝 loopback、私网、链路本地和云元数据地址；本地模型 provider 仍允许 `localhost`、私网地址和 `host.docker.internal`。
+- AI Copilot 连接失败信息继续做密钥清洗，包含 query escape 后的 API Key 形态，避免 Gemini 等 provider 的 Key 从 URL 或错误详情泄露。
+- `AGENTS.md` 和 `README.md` 已同步演示数据开关、Go 缓存路径和 Copilot Endpoint 安全约束。
+- 验证结果：
+  - `git diff --check` 通过。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过；沙箱内因 `httptest` 监听端口受限失败，外部执行通过。
+  - `cd frontend && npm run build` 通过。
+  - `cd frontend && npm run test:e2e` 通过；沙箱内因 Vite 监听 `5173` 受限失败，外部执行通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+
+## 2026-06-23 - 逐页 UI 巡检用例补充
+
+- 新增 `frontend/e2e/ui-audit.spec.js`，用于覆盖一期页面的真实点击路径：
+  - 登录页进入控制台。
+  - 首页四个 KPI 卡片跳转到资产、值班、任务和事件页面。
+  - 左侧菜单进入资产台账、中间件与数据库、值班管理、任务跟踪、事件管理、权限管理和 AI Copilot 配置。
+  - 资产、中间件、任务、事件页面验证新增/取消、行点击详情、详情隐藏、分页条和高级搜索。
+  - 值班管理验证概览、排班日历、排班配置、值班列表、交接班日志、升级策略，以及分配值班、添加人员、团队配置、提交交接和编辑策略弹窗的打开/取消。
+  - 权限管理验证新增用户弹窗和菜单/资源权限 Tab。
+  - AI Copilot 配置验证本地模型配置入口、测试连接反馈和全局悬浮 Copilot 打开/隐藏。
+- 巡检用例会在必要时通过 API 补充临时资产、中间件、值班、任务和事件数据，并在结束后清理，避免空列表导致巡检空转。
+- 当前验证结果：
+  - `node --check frontend/e2e/ui-audit.spec.js` 通过。
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 真正的 `ADMIN_PASSWORD='OpsCore2026' npx playwright test e2e/ui-audit.spec.js --project=chromium` 由于 Codex 外部执行额度限制被拒绝，尚未完成真实浏览器逐页点击执行；额度恢复后需要第一时间补跑。
+
+## 2026-06-24 - 逐页 UI 巡检执行与交互修复
+
+- 成功执行 `frontend/e2e/ui-audit.spec.js` 的真实浏览器逐页点击巡检，覆盖登录、首页 KPI 跳转、资产台账、中间件与数据库、值班管理、任务跟踪、事件管理、权限管理、AI Copilot 配置和全局 Copilot 悬浮入口。
+- 巡检中发现并修复权限管理顶层标题问题：点击“用户与角色”时顶层标题不再显示子页名，统一保留为“权限管理”，子页名交由 Tab 表达。
+- 巡检中发现并修复编辑表单失焦关闭的运行时错误：`closeEditorOnFocusOut` 现在会同步缓存面板 DOM，避免异步阶段 `event.currentTarget` 变为 `null` 导致 `contains` 报错。
+- 修正 E2E 巡检用例中两处不稳定选择器：详情面板按用户可见的“隐藏详情”按钮断言，值班弹窗按实际 `.duty-modal` 结构定位。
+- 验证结果：
+  - `ADMIN_PASSWORD='OpsCore2026' npx playwright test e2e/ui-audit.spec.js --project=chromium` 通过。
+  - `cd frontend && npm run test:e2e` 通过，登录 smoke 和逐页点击巡检共 2 个用例均通过。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+
 ## 2026-06-22 14:52 CST - 任务与事件列表分页和表格横线修正
 
 - 修复全局表格操作列样式：`td.row-actions` 不再使用 `display:flex`，避免操作列破坏表格单元格导致横线错位。
@@ -286,3 +355,65 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
   - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
   - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过；默认初始化密码已失效，符合管理员密码已初始化后的本地状态。
   - 容器内新接口已验证：缺少 hosted provider API Key 时返回 400。
+
+## 2026-06-23 - AI Copilot 连接测试安全与本地模型体验优化
+
+- 补充 Google Gemini 连接失败场景的回归测试，确认 query string 中的 API Key 不会出现在接口响应或前端提示中。
+- 后端连接失败错误统一经过密钥清洗后再返回；本地模型使用 `localhost` / `127.0.0.1` 且连接失败时，会提示 Docker 栈应使用 `http://host.docker.internal:11434`。
+- 前端本地模型默认地址从 `http://localhost:11434` 调整为 `http://host.docker.internal:11434`，更符合当前 Docker Compose 运行方式。
+- `AGENTS.md` 已同步连接测试错误清洗和 Docker 本地模型地址约定。
+- 验证结果：
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./internal/api -run Copilot` 通过。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `npm run build` 通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+  - 运行态验证确认：Gemini 失败路径不泄露 API Key，本地模型 `localhost` 失败路径会提示 `host.docker.internal`。
+
+## 2026-06-23 - Docker Compose 宿主机模型访问兼容
+
+- `deploy/docker-compose.yml` 为 backend 服务新增 `extra_hosts: ["host.docker.internal:host-gateway"]`。
+- 该配置让后端容器在 Linux/远程 Docker 环境下也能解析 `host.docker.internal`，与 AI Copilot 本地模型默认地址保持一致。
+- `AGENTS.md` 已同步该部署约定，避免后续误删导致本地模型连接测试在非 Docker Desktop 环境失效。
+- 验证结果：
+  - `docker compose config` 通过，backend 已解析出 `extra_hosts: host.docker.internal=host-gateway`。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `docker compose exec -T backend getent hosts host.docker.internal` 可解析到宿主机网关地址。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+
+## 2026-06-23 - AI Copilot 配置后端加密托管
+
+- 新增 `GET /api/copilot/config` 和 `PUT /api/copilot/config`，仅超级管理员可读写 AI Copilot 配置。
+- Copilot 配置保存复用 `system_settings`，API Key 通过现有 AES-GCM `credentialBox` 加密托管，不新增表结构。
+- 配置读取和保存响应只返回 `hasApiKey`，不会返回明文 API Key；前端保存成功后清空 API Key 输入框，仅显示托管状态。
+- 测试连接接口支持在请求未携带 API Key 时复用后端托管 Key；切换模型厂商或 Endpoint 且未重新输入 Key 时，后端会清理旧托管 Key，避免跨厂商错配。
+- 前端 AI Copilot 配置页启动时会加载后端配置，保存按钮改为真正调用后端持久化接口。
+- 验证结果：
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./internal/api -run Copilot` 通过。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `npm run build` 通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+  - 运行态验证确认：保存/读取 Copilot 配置均只返回 `hasApiKey=true`，不会返回明文 API Key。
+
+## 2026-06-23 - 前端安装 Playwright E2E
+
+- `frontend/` 安装 `@playwright/test`，并通过 `npx playwright install chromium` 安装 Chromium、Headless Shell 和 FFmpeg 浏览器依赖。
+- `frontend/package.json` 新增脚本：
+  - `npm run test:e2e`
+  - `npm run test:e2e:headed`
+  - `npm run test:e2e:ui`
+- 新增 `frontend/playwright.config.js`，默认复用 `http://localhost:5173`，若无现有服务则启动 Vite dev server。
+- 新增 `frontend/e2e/login.spec.js`，覆盖登录页标题、账号、密码和进入控制台按钮的最小 smoke 检查。
+- `.gitignore` 增加 `frontend/test-results/` 和 `frontend/playwright-report/`，避免 Playwright 运行产物进入版本变更。
+- 安装后执行 `npm audit fix`，当前 npm audit 已从 1 个 Vite 高危项修复为 0 vulnerabilities。
+- 验证结果：
+  - `npm audit` 返回 0 vulnerabilities。
+  - `npm run build` 通过，Vite 已升级到 6.4.3。
+  - `npm run test:e2e` 通过，Chromium 下 1 个登录页 smoke 用例通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
+  - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。

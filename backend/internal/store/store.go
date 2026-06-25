@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +25,23 @@ type Store struct {
 var ErrForbiddenAssetDelete = errors.New("only super admin or asset creator can delete asset")
 
 const credentialVerificationPasswordKey = "credential_verification_password_hash"
+const copilotConfigKey = "copilot_config"
+
+type storedCopilotConfig struct {
+	Provider              string `json:"provider"`
+	Endpoint              string `json:"endpoint"`
+	Model                 string `json:"model"`
+	APIKeyEncrypted       string `json:"apiKeyEncrypted,omitempty"`
+	LocalEndpoint         string `json:"localEndpoint"`
+	LocalModel            string `json:"localModel"`
+	Temperature           string `json:"temperature"`
+	MaxTokens             string `json:"maxTokens"`
+	EnableAssetContext    bool   `json:"enableAssetContext"`
+	EnableIncidentContext bool   `json:"enableIncidentContext"`
+	EnableTaskContext     bool   `json:"enableTaskContext"`
+	EnableOncallContext   bool   `json:"enableOncallContext"`
+	AuditEnabled          bool   `json:"auditEnabled"`
+}
 
 func Open(ctx context.Context, databaseURL string, credentialBox secretcrypto.SecretBox) (*Store, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
@@ -155,6 +174,118 @@ func (s *Store) VerifyCredentialPassword(ctx context.Context, password string) (
 		return false, err
 	}
 	return auth.VerifyPassword(passwordHash, password), nil
+}
+
+func (s *Store) GetCopilotConfig(ctx context.Context) (models.CopilotConfig, error) {
+	stored, err := s.readStoredCopilotConfig(ctx)
+	if err != nil {
+		return models.CopilotConfig{}, err
+	}
+	return publicCopilotConfig(stored), nil
+}
+
+func (s *Store) UpsertCopilotConfig(ctx context.Context, item models.CopilotConfig) (models.CopilotConfig, error) {
+	stored, err := s.readStoredCopilotConfig(ctx)
+	if err != nil {
+		return models.CopilotConfig{}, err
+	}
+	if strings.TrimSpace(item.APIKey) != "" {
+		encrypted, err := s.credentialBox.Encrypt(item.APIKey)
+		if err != nil {
+			return models.CopilotConfig{}, err
+		}
+		stored.APIKeyEncrypted = encrypted
+	} else if strings.TrimSpace(item.Provider) != strings.TrimSpace(stored.Provider) || strings.TrimSpace(item.Endpoint) != strings.TrimSpace(stored.Endpoint) {
+		stored.APIKeyEncrypted = ""
+	}
+	stored.Provider = item.Provider
+	stored.Endpoint = item.Endpoint
+	stored.Model = item.Model
+	stored.LocalEndpoint = item.LocalEndpoint
+	stored.LocalModel = item.LocalModel
+	stored.Temperature = item.Temperature
+	stored.MaxTokens = item.MaxTokens
+	stored.EnableAssetContext = item.EnableAssetContext
+	stored.EnableIncidentContext = item.EnableIncidentContext
+	stored.EnableTaskContext = item.EnableTaskContext
+	stored.EnableOncallContext = item.EnableOncallContext
+	stored.AuditEnabled = item.AuditEnabled
+
+	payload, err := json.Marshal(stored)
+	if err != nil {
+		return models.CopilotConfig{}, err
+	}
+	_, err = s.pool.Exec(ctx, `
+		insert into system_settings(key, value)
+		values ($1, $2)
+		on conflict (key) do update set value=excluded.value, updated_at=now()
+	`, copilotConfigKey, string(payload))
+	if err != nil {
+		return models.CopilotConfig{}, err
+	}
+	return publicCopilotConfig(stored), nil
+}
+
+func (s *Store) GetCopilotAPIKey(ctx context.Context) (string, error) {
+	stored, err := s.readStoredCopilotConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	if stored.APIKeyEncrypted == "" {
+		return "", nil
+	}
+	return s.credentialBox.Decrypt(stored.APIKeyEncrypted)
+}
+
+func (s *Store) readStoredCopilotConfig(ctx context.Context) (storedCopilotConfig, error) {
+	row := s.pool.QueryRow(ctx, `select value from system_settings where key=$1`, copilotConfigKey)
+	var payload string
+	if err := row.Scan(&payload); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return defaultStoredCopilotConfig(), nil
+		}
+		return storedCopilotConfig{}, err
+	}
+	var stored storedCopilotConfig
+	if err := json.Unmarshal([]byte(payload), &stored); err != nil {
+		return storedCopilotConfig{}, err
+	}
+	return stored, nil
+}
+
+func defaultStoredCopilotConfig() storedCopilotConfig {
+	return storedCopilotConfig{
+		Provider:              "openai",
+		Endpoint:              "https://api.openai.com/v1",
+		Model:                 "gpt-4.1",
+		LocalEndpoint:         "http://host.docker.internal:11434",
+		LocalModel:            "qwen2.5:7b",
+		Temperature:           "0.2",
+		MaxTokens:             "4096",
+		EnableAssetContext:    true,
+		EnableIncidentContext: true,
+		EnableTaskContext:     true,
+		EnableOncallContext:   true,
+		AuditEnabled:          true,
+	}
+}
+
+func publicCopilotConfig(stored storedCopilotConfig) models.CopilotConfig {
+	return models.CopilotConfig{
+		Provider:              stored.Provider,
+		Endpoint:              stored.Endpoint,
+		Model:                 stored.Model,
+		HasAPIKey:             stored.APIKeyEncrypted != "",
+		LocalEndpoint:         stored.LocalEndpoint,
+		LocalModel:            stored.LocalModel,
+		Temperature:           stored.Temperature,
+		MaxTokens:             stored.MaxTokens,
+		EnableAssetContext:    stored.EnableAssetContext,
+		EnableIncidentContext: stored.EnableIncidentContext,
+		EnableTaskContext:     stored.EnableTaskContext,
+		EnableOncallContext:   stored.EnableOncallContext,
+		AuditEnabled:          stored.AuditEnabled,
+	}
 }
 
 func (s *Store) ChangePassword(ctx context.Context, userID int64, currentPassword string, newPassword string) (models.User, error) {

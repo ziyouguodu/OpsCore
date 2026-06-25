@@ -532,6 +532,8 @@ td.row-actions .link + .link { margin-left: 10px; }
 .config-title { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .config-title h3 { margin-bottom: 4px; }
 .copilot-form { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.config-secret-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; color: var(--muted); font-size: 12px; }
+.config-secret-state small { line-height: 1.45; }
 .connection-result { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 12px; padding: 11px 12px; border-radius: 9px; border: 1px solid var(--border); background: rgba(9, 17, 31, .62); }
 .connection-result div { display: grid; gap: 3px; }
 .connection-result strong { font-size: 13px; }

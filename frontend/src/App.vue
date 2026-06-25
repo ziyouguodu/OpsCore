@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, clearToken, getToken, login as loginApi } from './api'
 
+const demoDataEnabled = import.meta.env.VITE_ENABLE_DEMO_DATA === 'true'
 const routeViews = ['dashboard', 'cmdb', 'middleware', 'oncall', 'tasks', 'incidents', 'permissions', 'copilot-settings']
 const permissionTabs = ['users', 'resources']
 const oncallTabs = ['overview', 'calendar', 'handover', 'takeover']
@@ -302,9 +303,10 @@ const copilotConfig = reactive({
   provider: 'openai',
   model: 'gpt-4.1',
   endpoint: 'https://api.openai.com/v1',
-  localEndpoint: 'http://localhost:11434',
+  localEndpoint: 'http://host.docker.internal:11434',
   localModel: 'qwen2.5:7b',
   apiKey: '',
+  hasApiKey: false,
   temperature: '0.2',
   maxTokens: '4096',
   enableAssetContext: true,
@@ -385,7 +387,7 @@ const activeTitle = computed(() => {
     oncall: '值班管理',
     tasks: '任务跟踪',
     incidents: '事件管理',
-    permissions: permissionTab.value === 'resources' ? '菜单与资源权限' : '用户与角色',
+    permissions: '权限管理',
     'copilot-settings': 'AI Copilot 配置'
   }
   return labels[activeView.value]
@@ -414,9 +416,7 @@ const activeSubtitle = computed(() => {
     oncall: '面向事件响应连续性，统一管理当前值班、排班日历、交接日志与升级策略。',
     tasks: '跟踪派发、处理、确认、完成和关闭的任务闭环。',
     incidents: '按 P1-P4 管理影响、状态、恢复和复盘动作。',
-    permissions: permissionTab.value === 'resources'
-      ? '查看一期菜单入口、业务资源与角色授权边界。'
-      : '管理一期角色、账号密码登录和敏感凭据查看边界。',
+    permissions: '管理一期角色、账号密码登录、菜单资源授权和敏感凭据查看边界。',
     'copilot-settings': '配置 AI Copilot 的模型来源、上下文权限、审计和受控自动化边界。'
   }
   return descriptions[activeView.value] || controlPrinciple
@@ -469,12 +469,12 @@ function countBy(items, field, defaults = []) {
 const weekdayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const rosterFallback = ['李明', '王敏', '赵晨', '陈浩', '刘洋', '周杰', '孙磊']
 
-const displayAssets = computed(() => state.assets.length ? state.assets : sampleAssets)
-const displayMiddleware = computed(() => state.middleware.length ? state.middleware : sampleMiddleware)
-const displayOncalls = computed(() => state.oncalls.length ? state.oncalls : sampleOncalls)
-const displayTasks = computed(() => state.tasks.length ? state.tasks : sampleTasks)
-const displayIncidents = computed(() => state.incidents.length ? state.incidents : sampleIncidents)
-const displayUsers = computed(() => state.users.length ? state.users : sampleUsers)
+const displayAssets = computed(() => state.assets.length ? state.assets : (demoDataEnabled ? sampleAssets : []))
+const displayMiddleware = computed(() => state.middleware.length ? state.middleware : (demoDataEnabled ? sampleMiddleware : []))
+const displayOncalls = computed(() => state.oncalls.length ? state.oncalls : (demoDataEnabled ? sampleOncalls : []))
+const displayTasks = computed(() => state.tasks.length ? state.tasks : (demoDataEnabled ? sampleTasks : []))
+const displayIncidents = computed(() => state.incidents.length ? state.incidents : (demoDataEnabled ? sampleIncidents : []))
+const displayUsers = computed(() => state.users.length ? state.users : (demoDataEnabled ? sampleUsers : []))
 const taskStatusCounts = computed(() => countBy(displayTasks.value, 'status', ['待处理', '处理中', '待确认', '已完成', '已关闭']))
 const incidentLevelCounts = computed(() => countBy(displayIncidents.value, 'level', ['P1', 'P2', 'P3', 'P4']))
 const incidentStatusCounts = computed(() => countBy(displayIncidents.value, 'status', ['新建', '处理中', '已恢复', '已关闭']))
@@ -484,10 +484,30 @@ const todayOncall = computed(() => displayOncalls.value[0] || {})
 const oncallSwapCount = computed(() => displayOncalls.value.filter((item) => item.swapFrom || item.swapTo).length)
 const currentTask = computed(() => selectedTask.value || null)
 const currentIncident = computed(() => selectedIncident.value || null)
-const dashboardAssetCount = computed(() => state.dashboard.assetCount || displayAssets.value.length + displayMiddleware.value.length)
-const dashboardOncallCount = computed(() => state.dashboard.todayOnCallCount || displayOncalls.value.length)
-const dashboardTaskCount = computed(() => state.dashboard.activeTaskCount || activeTasks.value.length)
-const dashboardIncidentCount = computed(() => state.dashboard.activeIncidentCount || activeIncidents.value.length)
+const dashboardAssetCount = computed(() => {
+  if (demoDataEnabled && !state.assets.length && !state.middleware.length && state.dashboard.assetCount === 0) {
+    return displayAssets.value.length + displayMiddleware.value.length
+  }
+  return state.dashboard.assetCount
+})
+const dashboardOncallCount = computed(() => {
+  if (demoDataEnabled && !state.oncalls.length && state.dashboard.todayOnCallCount === 0) {
+    return displayOncalls.value.length
+  }
+  return state.dashboard.todayOnCallCount
+})
+const dashboardTaskCount = computed(() => {
+  if (demoDataEnabled && !state.tasks.length && state.dashboard.activeTaskCount === 0) {
+    return activeTasks.value.length
+  }
+  return state.dashboard.activeTaskCount
+})
+const dashboardIncidentCount = computed(() => {
+  if (demoDataEnabled && !state.incidents.length && state.dashboard.activeIncidentCount === 0) {
+    return activeIncidents.value.length
+  }
+  return state.dashboard.activeIncidentCount
+})
 const assetKpiBars = computed(() => {
   const databaseKinds = ['MySQL', 'PostgreSQL', '达梦']
   const serverCount = displayAssets.value.length
@@ -681,7 +701,7 @@ const menuPermissionRows = [
 ]
 
 const copilotProviders = [
-  { id: 'local', name: '本地模型', badge: 'Local', endpoint: 'http://localhost:11434', models: ['qwen2.5:7b', 'deepseek-r1:7b', 'llama3.1:8b'], desc: '适合内网部署、敏感数据不出域和离线推理场景。' },
+  { id: 'local', name: '本地模型', badge: 'Local', endpoint: 'http://host.docker.internal:11434', models: ['qwen2.5:7b', 'deepseek-r1:7b', 'llama3.1:8b'], desc: '适合内网部署、敏感数据不出域和离线推理场景；Docker 栈访问宿主机 Ollama 时使用 host.docker.internal。' },
   { id: 'openai', name: 'OpenAI GPT', badge: 'GPT', endpoint: 'https://api.openai.com/v1', models: ['gpt-4.1', 'gpt-4o', 'o4-mini'], desc: '适合综合分析、复杂推理和通用 Copilot 能力。' },
   { id: 'anthropic', name: 'Anthropic Claude', badge: 'Claude', endpoint: 'https://api.anthropic.com', models: ['claude-3-7-sonnet', 'claude-3-5-sonnet'], desc: '适合长上下文总结、变更评审和事件复盘。' },
   { id: 'google', name: 'Google Gemini', badge: 'Gemini', endpoint: 'https://generativelanguage.googleapis.com', models: ['gemini-1.5-pro', 'gemini-1.5-flash'], desc: '适合多模态、知识检索和轻量分析场景。' },
@@ -781,11 +801,12 @@ function closeOpenEditors() {
 }
 
 function closeEditorOnFocusOut(event, closeFn) {
+  const panel = event.currentTarget
   const nextTarget = event.relatedTarget
-  if (nextTarget && event.currentTarget.contains(nextTarget)) return
+  if (nextTarget && panel?.contains(nextTarget)) return
   window.requestAnimationFrame(() => {
     const active = document.activeElement
-    if (active && event.currentTarget.contains(active)) return
+    if (active && panel?.contains(active)) return
     closeFn()
   })
 }
@@ -827,12 +848,14 @@ async function loadAll() {
     state.incidents = incidents
     if ((me.roles || []).includes('super_admin')) {
       try {
-        const [users, verification] = await Promise.all([
+        const [users, verification, copilotSettings] = await Promise.all([
           api('/users'),
-          api('/security/credential-verification')
+          api('/security/credential-verification'),
+          api('/copilot/config')
         ])
         state.users = users
         credentialVerification.hasPassword = Boolean(verification.hasPassword)
+        applyCopilotConfig(copilotSettings)
       } catch {
         state.users = []
         credentialVerification.hasPassword = false
@@ -1604,6 +1627,26 @@ function selectCopilotProvider(provider) {
   resetCopilotConnection()
 }
 
+function applyCopilotConfig(config) {
+  Object.assign(copilotConfig, {
+    provider: config.provider || 'openai',
+    endpoint: config.endpoint || 'https://api.openai.com/v1',
+    model: config.model || 'gpt-4.1',
+    apiKey: '',
+    hasApiKey: Boolean(config.hasApiKey),
+    localEndpoint: config.localEndpoint || 'http://host.docker.internal:11434',
+    localModel: config.localModel || 'qwen2.5:7b',
+    temperature: config.temperature || '0.2',
+    maxTokens: config.maxTokens || '4096',
+    enableAssetContext: Boolean(config.enableAssetContext),
+    enableIncidentContext: Boolean(config.enableIncidentContext),
+    enableTaskContext: Boolean(config.enableTaskContext),
+    enableOncallContext: Boolean(config.enableOncallContext),
+    auditEnabled: Boolean(config.auditEnabled)
+  })
+  resetCopilotConnection()
+}
+
 function selectCopilotProviderByID() {
   selectCopilotProvider(selectedCopilotProvider.value)
 }
@@ -1650,8 +1693,21 @@ async function testCopilotConnection() {
   }
 }
 
-function saveCopilotConfig() {
-  error.value = 'AI Copilot 配置已在当前前端会话中保存；后端持久化和密钥托管需在下一步接入。'
+async function saveCopilotConfig() {
+  if (!canManageUsers.value) {
+    error.value = '只有超级管理员可以保存 AI Copilot 配置'
+    return
+  }
+  try {
+    const saved = await api('/copilot/config', {
+      method: 'PUT',
+      body: JSON.stringify(copilotConfig)
+    })
+    applyCopilotConfig(saved)
+    error.value = saved.hasApiKey ? 'AI Copilot 配置已保存，API Key 已由后端加密托管。' : 'AI Copilot 配置已保存；当前未配置托管 API Key。'
+  } catch (err) {
+    error.value = `AI Copilot 配置保存失败：${err.message}`
+  }
 }
 
 function closeOncallForm() {
@@ -3502,10 +3558,10 @@ onMounted(() => {
                   <input v-model="copilotConfig.model" placeholder="例如 gpt-4.1 / claude-3-7-sonnet" />
                 </label>
                 <label>API Key
-                  <input v-model="copilotConfig.apiKey" type="password" placeholder="前端不保存真实生产密钥" />
+                  <input v-model="copilotConfig.apiKey" type="password" :placeholder="copilotConfig.hasApiKey ? '已托管密钥；留空则继续使用' : '输入后由后端加密托管'" />
                 </label>
                 <label>本地模型地址
-                  <input v-model="copilotConfig.localEndpoint" placeholder="例如 http://localhost:11434" />
+                  <input v-model="copilotConfig.localEndpoint" placeholder="Docker 下例如 http://host.docker.internal:11434" />
                 </label>
                 <label>本地模型
                   <input v-model="copilotConfig.localModel" placeholder="例如 qwen2.5:7b" />
@@ -3516,6 +3572,10 @@ onMounted(() => {
                 <label>Max Tokens
                   <input v-model="copilotConfig.maxTokens" />
                 </label>
+              </div>
+              <div class="config-secret-state">
+                <span :class="['pill', copilotConfig.hasApiKey ? 'success' : '']">{{ copilotConfig.hasApiKey ? 'API Key 已托管' : '未配置托管密钥' }}</span>
+                <small>{{ copilotConfig.hasApiKey ? '保存时留空会继续使用当前托管密钥；切换厂商或 Endpoint 时请重新输入匹配的 Key。' : 'Hosted 模型需要填写 API Key 后保存或直接测试。' }}</small>
               </div>
               <div
                 v-if="copilotConnection.message"
