@@ -1,5 +1,0 @@
-./server.go
-./credential_test.go
-./mutation_test.go
-./server_test.go
-./status_test.go
