@@ -1,15 +1,30 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api'
+const API_BASE = import.meta.env?.VITE_API_BASE || '/api'
 const TOKEN_KEY = 'opscore.token'
+let sessionExpiredHandler = null
+
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export function setSessionExpiredHandler(handler) {
+  sessionExpiredHandler = typeof handler === 'function' ? handler : null
+}
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  return sessionStorage.getItem(TOKEN_KEY)
 }
 
 export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
+  localStorage.removeItem(TOKEN_KEY)
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
 export function clearToken() {
+  sessionStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(TOKEN_KEY)
 }
 
@@ -25,7 +40,11 @@ export async function api(path, options = {}) {
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(payload.error || '请求失败')
+    if (response.status === 401 && token) {
+      clearToken()
+      sessionExpiredHandler?.()
+    }
+    throw new ApiError(payload.error || '请求失败', response.status)
   }
   return payload
 }
@@ -38,4 +57,3 @@ export async function login(username, password) {
   setToken(payload.token)
   return payload
 }
-

@@ -31,31 +31,30 @@ type UserMutation struct {
 }
 
 type Asset struct {
-	ID              int64     `json:"id"`
-	CreatedBy       int64     `json:"createdBy"`
-	AssetNo         string    `json:"assetNo"`
-	Type            string    `json:"type"`
-	Vendor          string    `json:"vendor"`
-	CPUArch         string    `json:"cpuArch"`
-	SN              string    `json:"sn"`
-	Location        string    `json:"location"`
-	Business        string    `json:"business"`
-	IPv4            string    `json:"ipv4"`
-	IPv6            string    `json:"ipv6"`
-	Environment     string    `json:"environment"`
-	OS              string    `json:"os"`
-	Hostname        string    `json:"hostname"`
-	NetworkZone     string    `json:"networkZone"`
-	CPU             string    `json:"cpu"`
-	Memory          string    `json:"memory"`
-	Disk            string    `json:"disk"`
-	DeploymentInfo  string    `json:"deploymentInfo"`
-	Owner           string    `json:"owner"`
-	Status          string    `json:"status"`
-	ConnectedStatus string    `json:"connectedStatus"`
-	HostMachine     string    `json:"hostMachine"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	ID             int64     `json:"id"`
+	CreatedBy      int64     `json:"createdBy"`
+	AssetNo        string    `json:"assetNo"`
+	Type           string    `json:"type"`
+	Vendor         string    `json:"vendor"`
+	CPUArch        string    `json:"cpuArch"`
+	SN             string    `json:"sn"`
+	Location       string    `json:"location"`
+	Business       string    `json:"business"`
+	IPv4           string    `json:"ipv4"`
+	IPv6           string    `json:"ipv6"`
+	Environment    string    `json:"environment"`
+	OS             string    `json:"os"`
+	Hostname       string    `json:"hostname"`
+	NetworkZone    string    `json:"networkZone"`
+	CPU            string    `json:"cpu"`
+	Memory         string    `json:"memory"`
+	Disk           string    `json:"disk"`
+	DeploymentInfo string    `json:"deploymentInfo"`
+	Owner          string    `json:"owner"`
+	Status         string    `json:"status"`
+	HostMachine    string    `json:"hostMachine"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 type AssetCredential struct {

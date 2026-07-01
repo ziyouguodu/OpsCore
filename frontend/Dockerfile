@@ -2,7 +2,7 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY . .
 ARG VITE_API_BASE=/api
 ARG VITE_ENABLE_DEMO_DATA=false

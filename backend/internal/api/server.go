@@ -1,10 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,8 +26,12 @@ type Server struct {
 type ctxKey string
 
 const claimsKey ctxKey = "claims"
+const maxJSONBodyBytes = 1 << 20
 
 var errForbiddenAssetDelete = store.ErrForbiddenAssetDelete
+var errLastSuperAdmin = store.ErrLastSuperAdmin
+var errStatusConflict = store.ErrStatusConflict
+var errDutyRevisionConflict = store.ErrDutyRevisionConflict
 
 type persistence interface {
 	Authenticate(context.Context, string, string) (models.User, bool, error)
@@ -59,6 +64,8 @@ type persistence interface {
 	CreateOnCall(context.Context, models.OnCallSchedule) (models.OnCallSchedule, error)
 	UpdateOnCall(context.Context, int64, models.OnCallSchedule) (models.OnCallSchedule, error)
 	DeleteOnCall(context.Context, int64) error
+	GetDutyCenter(context.Context) (models.DutyCenterState, error)
+	SaveDutyCenter(context.Context, models.DutyCenterMutation, int64) (models.DutyCenterState, error)
 	ListTasks(context.Context) ([]models.Task, error)
 	CreateTask(context.Context, models.Task) (models.Task, error)
 	UpdateTask(context.Context, int64, models.Task) (models.Task, error)
@@ -111,6 +118,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/oncall", s.requirePermission(auth.PermissionOnCallWrite, http.HandlerFunc(s.oncalls)))
 	mux.Handle("PUT /api/oncall/{id}", s.requirePermission(auth.PermissionOnCallWrite, http.HandlerFunc(s.oncallResource)))
 	mux.Handle("DELETE /api/oncall/{id}", s.requirePermission(auth.PermissionOnCallWrite, http.HandlerFunc(s.oncallResource)))
+	mux.Handle("GET /api/duty-center", s.requirePermission(auth.PermissionOnCallRead, http.HandlerFunc(s.dutyCenter)))
+	mux.Handle("PUT /api/duty-center", s.requirePermission(auth.PermissionOnCallWrite, http.HandlerFunc(s.dutyCenter)))
 	mux.Handle("GET /api/tasks", s.requirePermission(auth.PermissionTaskRead, http.HandlerFunc(s.tasks)))
 	mux.Handle("POST /api/tasks", s.requirePermission(auth.PermissionTaskWrite, http.HandlerFunc(s.tasks)))
 	mux.Handle("PUT /api/tasks/{id}", s.requirePermission(auth.PermissionTaskWrite, http.HandlerFunc(s.taskResource)))
@@ -242,6 +251,10 @@ func (s *Server) userResource(w http.ResponseWriter, r *http.Request) {
 		}
 		saved, err := s.store.UpdateUser(r.Context(), id, item)
 		if err != nil {
+			if errors.Is(err, errLastSuperAdmin) {
+				writeError(w, http.StatusConflict, err)
+				return
+			}
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -253,6 +266,10 @@ func (s *Server) userResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.store.DeleteUser(r.Context(), id); err != nil {
+			if errors.Is(err, errLastSuperAdmin) {
+				writeError(w, http.StatusConflict, err)
+				return
+			}
 			writeError(w, http.StatusNotFound, err)
 			return
 		}
@@ -699,6 +716,10 @@ func (s *Server) taskResource(w http.ResponseWriter, r *http.Request) {
 		}
 		saved, err := s.store.UpdateTask(r.Context(), id, item)
 		if err != nil {
+			if errors.Is(err, errStatusConflict) {
+				writeError(w, http.StatusConflict, err)
+				return
+			}
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -739,6 +760,10 @@ func (s *Server) taskStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.UpdateTaskStatus(r.Context(), id, body.Status); err != nil {
+		if errors.Is(err, errStatusConflict) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -829,6 +854,10 @@ func (s *Server) incidentResource(w http.ResponseWriter, r *http.Request) {
 		}
 		saved, err := s.store.UpdateIncident(r.Context(), id, item)
 		if err != nil {
+			if errors.Is(err, errStatusConflict) {
+				writeError(w, http.StatusConflict, err)
+				return
+			}
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -869,6 +898,10 @@ func (s *Server) incidentStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.UpdateIncidentStatus(r.Context(), id, body.Status); err != nil {
+		if errors.Is(err, errStatusConflict) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -896,6 +929,8 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, errors.New("initial password must be changed before accessing OpsCore APIs"))
 			return
 		}
+		claims.Username = user.Username
+		claims.Roles = append([]string(nil), user.Roles...)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
 	})
 }
@@ -913,6 +948,7 @@ func (s *Server) requirePermission(permission string, next http.Handler) http.Ha
 
 func (s *Server) cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", s.cfg.CORSOrigin)
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
@@ -935,7 +971,25 @@ func initialPasswordAllowedPath(path string) bool {
 
 func readJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(target)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxJSONBodyBytes {
+		return errors.New("request body is too large")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return errors.New("request body must contain a single JSON object")
+		}
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -982,188 +1036,4 @@ func middlewareCredentialResponse(item models.MiddlewareCredential, reveal bool)
 		item.Secret = ""
 	}
 	return item
-}
-
-func validateUserMutation(item models.UserMutation, requirePassword bool) error {
-	if strings.TrimSpace(item.Username) == "" || strings.TrimSpace(item.DisplayName) == "" || len(item.Roles) == 0 {
-		return errors.New("username, displayName and roles are required")
-	}
-	if requirePassword && item.Password == "" {
-		return errors.New("password is required")
-	}
-	if item.Password != "" && len(item.Password) < 8 {
-		return errors.New("password must be at least 8 characters")
-	}
-	return nil
-}
-
-func validateAsset(item models.Asset, requireAssetNo bool) error {
-	required := map[string]string{
-		"type":            item.Type,
-		"cpuArch":         item.CPUArch,
-		"business":        item.Business,
-		"ipv4":            item.IPv4,
-		"environment":     item.Environment,
-		"os":              item.OS,
-		"networkZone":     item.NetworkZone,
-		"cpu":             item.CPU,
-		"memory":          item.Memory,
-		"disk":            item.Disk,
-		"deploymentInfo":  item.DeploymentInfo,
-		"owner":           item.Owner,
-		"status":          item.Status,
-		"connectedStatus": item.ConnectedStatus,
-	}
-	if requireAssetNo {
-		required["assetNo"] = item.AssetNo
-	}
-	for field, value := range required {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("asset %s is required", field)
-		}
-	}
-	if !containsString([]string{"物理机", "虚拟机"}, item.Type) {
-		return errors.New("asset type must be 物理机 or 虚拟机")
-	}
-	if !containsString([]string{"生产", "仿真", "研发"}, item.Environment) {
-		return errors.New("asset environment must be 生产, 仿真 or 研发")
-	}
-	if !containsString([]string{"运行中", "维护中", "停用", "故障"}, item.Status) {
-		return errors.New("asset status is invalid")
-	}
-	if !containsString([]string{"已并网", "未并网", "待确认"}, item.ConnectedStatus) {
-		return errors.New("asset connectedStatus is invalid")
-	}
-	return nil
-}
-
-func prepareMiddleware(item *models.MiddlewareInstance) error {
-	required := map[string]string{
-		"name":        item.Name,
-		"kind":        item.Kind,
-		"environment": item.Environment,
-		"networkZone": item.NetworkZone,
-		"endpoint":    item.Endpoint,
-		"business":    item.Business,
-		"owner":       item.Owner,
-	}
-	for field, value := range required {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("middleware %s is required", field)
-		}
-	}
-	if item.Status == "" {
-		item.Status = "运行中"
-	}
-	if !containsString([]string{"MySQL", "Redis", "Kafka", "PostgreSQL", "达梦", "Nginx", "ElasticSearch", "Nacos", "RocketMQ", "MinIO"}, item.Kind) {
-		return errors.New("middleware kind is invalid")
-	}
-	if !containsString([]string{"生产", "仿真", "研发"}, item.Environment) {
-		return errors.New("middleware environment must be 生产, 仿真 or 研发")
-	}
-	if !containsString([]string{"运行中", "维护中", "停用", "故障"}, item.Status) {
-		return errors.New("middleware status is invalid")
-	}
-	return nil
-}
-
-func prepareOnCall(item *models.OnCallSchedule) error {
-	if item.RuleType == "" {
-		item.RuleType = "daily"
-	}
-	if item.RuleType != "daily" && item.RuleType != "weekly" {
-		return errors.New("oncall ruleType must be daily or weekly")
-	}
-	if strings.TrimSpace(item.Primary) == "" {
-		return errors.New("oncall primary is required")
-	}
-	if item.RuleType == "daily" && strings.TrimSpace(item.Date) == "" {
-		return errors.New("oncall date is required for daily rule")
-	}
-	if item.RuleType == "weekly" && strings.TrimSpace(item.Week) == "" {
-		return errors.New("oncall week is required for weekly rule")
-	}
-	return nil
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func validateTaskMutation(item models.Task) error {
-	if strings.TrimSpace(item.Title) == "" {
-		return errors.New("task title is required")
-	}
-	return nil
-}
-
-func validateTaskStatus(status string) error {
-	switch domain.TaskStatus(status) {
-	case domain.TaskPending, domain.TaskInProgress, domain.TaskPendingConfirm, domain.TaskDone, domain.TaskClosed:
-		return nil
-	default:
-		return errors.New("invalid task status")
-	}
-}
-
-func validateTaskTransition(from, to string) error {
-	if from == to {
-		return nil
-	}
-	if err := validateTaskStatus(from); err != nil {
-		return err
-	}
-	if err := validateTaskStatus(to); err != nil {
-		return err
-	}
-	if !domain.CanTransitionTask(domain.TaskStatus(from), domain.TaskStatus(to)) {
-		return errors.New("invalid task status transition")
-	}
-	return nil
-}
-
-func validateIncidentMutation(item models.Incident) error {
-	if strings.TrimSpace(item.Title) == "" {
-		return errors.New("incident title is required")
-	}
-	return nil
-}
-
-func validateIncidentLevel(level string) error {
-	switch level {
-	case "P1", "P2", "P3", "P4":
-		return nil
-	default:
-		return errors.New("incident level must be P1, P2, P3 or P4")
-	}
-}
-
-func validateIncidentStatus(status string) error {
-	switch domain.IncidentStatus(status) {
-	case domain.IncidentNew, domain.IncidentProcessing, domain.IncidentRecovered, domain.IncidentClosed:
-		return nil
-	default:
-		return errors.New("invalid incident status")
-	}
-}
-
-func validateIncidentTransition(from, to string) error {
-	if from == to {
-		return nil
-	}
-	if err := validateIncidentStatus(from); err != nil {
-		return err
-	}
-	if err := validateIncidentStatus(to); err != nil {
-		return err
-	}
-	if !domain.CanTransitionIncident(domain.IncidentStatus(from), domain.IncidentStatus(to)) {
-		return errors.New("invalid incident status transition")
-	}
-	return nil
 }

@@ -26,13 +26,19 @@ type mutationStore struct {
 	assetUpdated               models.Asset
 	middlewareUpdated          models.MiddlewareInstance
 	oncallUpdated              models.OnCallSchedule
+	dutyCenter                 models.DutyCenterState
+	dutyCenterErr              error
 	taskCreated                models.Task
 	taskUpdated                models.Task
+	taskStatusErr              error
 	incidentCreated            models.Incident
 	incidentUpdated            models.Incident
+	incidentStatusErr          error
 	userCreated                models.UserListItem
 	userUpdated                models.UserListItem
 	userDeleted                int64
+	userUpdateErr              error
+	userDeleteErr              error
 	middlewareCred             models.MiddlewareCredential
 	userProfile                models.User
 	passwordUserID             int64
@@ -42,6 +48,14 @@ type mutationStore struct {
 	credentialVerifyConfigured string
 	credentialVerifyChecks     []string
 	copilotConfig              models.CopilotConfig
+}
+
+func newOpsMutationStore() *mutationStore {
+	return &mutationStore{userProfile: models.User{
+		ID:       7,
+		Username: "ops.li",
+		Roles:    []string{auth.RoleOpsEngineer},
+	}}
 }
 
 func (s *mutationStore) Authenticate(context.Context, string, string) (models.User, bool, error) {
@@ -76,6 +90,9 @@ func (s *mutationStore) CreateUser(_ context.Context, item models.UserMutation) 
 	return s.userCreated, nil
 }
 func (s *mutationStore) UpdateUser(_ context.Context, id int64, item models.UserMutation) (models.UserListItem, error) {
+	if s.userUpdateErr != nil {
+		return models.UserListItem{}, s.userUpdateErr
+	}
 	s.userUpdated = models.UserListItem{
 		ID:                 id,
 		Username:           item.Username,
@@ -86,8 +103,55 @@ func (s *mutationStore) UpdateUser(_ context.Context, id int64, item models.User
 	return s.userUpdated, nil
 }
 func (s *mutationStore) DeleteUser(_ context.Context, id int64) error {
+	if s.userDeleteErr != nil {
+		return s.userDeleteErr
+	}
 	s.userDeleted = id
 	return nil
+}
+
+func TestUserRoleConflictReturnsConflict(t *testing.T) {
+	store := &mutationStore{
+		userProfile:   models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		userUpdateErr: errLastSuperAdmin,
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/1", strings.NewReader(`{"username":"admin","displayName":"超级管理员","roles":["ops_engineer"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected role conflict status 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeletingProtectedAdminReturnsConflict(t *testing.T) {
+	store := &mutationStore{
+		userProfile:   models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		userDeleteErr: errLastSuperAdmin,
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/users/2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected delete conflict status 409, got %d: %s", rec.Code, rec.Body.String())
+	}
 }
 func (s *mutationStore) ListAssets(context.Context) ([]models.Asset, error) {
 	return []models.Asset{}, nil
@@ -111,7 +175,8 @@ func (s *mutationStore) GetAssetCredential(context.Context, int64) (models.Asset
 }
 
 func TestOpsEngineerCannotDeleteAssetCreatedByAnotherUser(t *testing.T) {
-	store := &mutationStore{assetCreator: 99}
+	store := newOpsMutationStore()
+	store.assetCreator = 99
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
@@ -330,7 +395,7 @@ func TestUserMutationRejectsShortPasswords(t *testing.T) {
 }
 
 func TestOpsEngineerCannotManageUsers(t *testing.T) {
-	store := &mutationStore{}
+	store := newOpsMutationStore()
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
@@ -376,7 +441,7 @@ func TestCredentialVerificationPasswordCanBeConfiguredBySuperAdmin(t *testing.T)
 }
 
 func TestOpsEngineerCannotConfigureCredentialVerificationPassword(t *testing.T) {
-	store := &mutationStore{}
+	store := newOpsMutationStore()
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
@@ -468,6 +533,16 @@ func (s *mutationStore) DeleteOnCall(_ context.Context, id int64) error {
 	s.oncallDeleted = id
 	return nil
 }
+func (s *mutationStore) GetDutyCenter(context.Context) (models.DutyCenterState, error) {
+	return s.dutyCenter, s.dutyCenterErr
+}
+func (s *mutationStore) SaveDutyCenter(_ context.Context, mutation models.DutyCenterMutation, actorUserID int64) (models.DutyCenterState, error) {
+	if s.dutyCenterErr != nil {
+		return models.DutyCenterState{}, s.dutyCenterErr
+	}
+	s.dutyCenter = models.DutyCenterState{Revision: mutation.Revision + 1, Data: mutation.Data, UpdatedBy: actorUserID}
+	return s.dutyCenter, nil
+}
 func (s *mutationStore) ListTasks(context.Context) ([]models.Task, error) {
 	return []models.Task{}, nil
 }
@@ -487,7 +562,9 @@ func (s *mutationStore) DeleteTask(_ context.Context, id int64) error {
 func (s *mutationStore) GetTaskStatus(context.Context, int64) (string, error) {
 	return "待处理", nil
 }
-func (s *mutationStore) UpdateTaskStatus(context.Context, int64, string) error { return nil }
+func (s *mutationStore) UpdateTaskStatus(context.Context, int64, string) error {
+	return s.taskStatusErr
+}
 func (s *mutationStore) ListIncidents(context.Context) ([]models.Incident, error) {
 	return []models.Incident{}, nil
 }
@@ -507,7 +584,43 @@ func (s *mutationStore) DeleteIncident(_ context.Context, id int64) error {
 func (s *mutationStore) GetIncidentStatus(context.Context, int64) (string, error) {
 	return "新建", nil
 }
-func (s *mutationStore) UpdateIncidentStatus(context.Context, int64, string) error { return nil }
+func (s *mutationStore) UpdateIncidentStatus(context.Context, int64, string) error {
+	return s.incidentStatusErr
+}
+
+func TestConcurrentTaskTransitionConflictReturnsConflict(t *testing.T) {
+	store := &mutationStore{
+		userProfile:   models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		taskStatusErr: errStatusConflict,
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, _ := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	req := httptest.NewRequest(http.MethodPatch, "/api/tasks/42", strings.NewReader(`{"status":"处理中"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected concurrent task transition conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConcurrentIncidentTransitionConflictReturnsConflict(t *testing.T) {
+	store := &mutationStore{
+		userProfile:       models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		incidentStatusErr: errStatusConflict,
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, _ := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	req := httptest.NewRequest(http.MethodPatch, "/api/incidents/42", strings.NewReader(`{"status":"处理中"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected concurrent incident transition conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
 
 func TestAssetMutationRoutesUpdateAndDeleteByID(t *testing.T) {
 	store := &mutationStore{}
@@ -518,7 +631,7 @@ func TestAssetMutationRoutesUpdateAndDeleteByID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/assets/42", strings.NewReader(`{"assetNo":"ASSET-42","type":"物理机","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","connectedStatus":"已并网","status":"运行中"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/assets/42", strings.NewReader(`{"assetNo":"ASSET-42","type":"物理机","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","status":"运行中"}`))
 	putReq.Header.Set("Authorization", "Bearer "+token)
 	putRec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(putRec, putReq)
@@ -545,8 +658,25 @@ func TestAssetMutationRoutesUpdateAndDeleteByID(t *testing.T) {
 	}
 }
 
+func TestAssetCreateDoesNotRequireRetiredConnectedStatus(t *testing.T) {
+	store := &mutationStore{userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}}}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, _ := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	req := httptest.NewRequest(http.MethodPost, "/api/assets", strings.NewReader(`{"type":"物理机","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","status":"运行中"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected asset create without retired connected status, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "connectedStatus") {
+		t.Fatalf("retired connected status must not be exposed by the API: %s", rec.Body.String())
+	}
+}
+
 func TestAssetCreateReturnsCreatedAndTracksCreator(t *testing.T) {
-	store := &mutationStore{}
+	store := newOpsMutationStore()
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
@@ -554,7 +684,7 @@ func TestAssetCreateReturnsCreatedAndTracksCreator(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/assets", strings.NewReader(`{"type":"物理机","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","connectedStatus":"已并网","status":"运行中"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/assets", strings.NewReader(`{"type":"物理机","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","status":"运行中"}`))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(rec, req)
@@ -576,7 +706,7 @@ func TestAssetMutationRejectsMissingOrInvalidFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	missingReq := httptest.NewRequest(http.MethodPut, "/api/assets/42", strings.NewReader(`{"assetNo":"ASSET-42","type":"物理机","cpuArch":"x86_64","business":"支付服务","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","connectedStatus":"已并网","status":"运行中"}`))
+	missingReq := httptest.NewRequest(http.MethodPut, "/api/assets/42", strings.NewReader(`{"assetNo":"ASSET-42","type":"物理机","cpuArch":"x86_64","business":"支付服务","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","status":"运行中"}`))
 	missingReq.Header.Set("Authorization", "Bearer "+token)
 	missingRec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(missingRec, missingReq)
@@ -584,7 +714,7 @@ func TestAssetMutationRejectsMissingOrInvalidFields(t *testing.T) {
 		t.Fatalf("expected missing asset ipv4 status 400, got %d: %s", missingRec.Code, missingRec.Body.String())
 	}
 
-	invalidReq := httptest.NewRequest(http.MethodPost, "/api/assets", strings.NewReader(`{"type":"容器","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","connectedStatus":"已并网","status":"运行中"}`))
+	invalidReq := httptest.NewRequest(http.MethodPost, "/api/assets", strings.NewReader(`{"type":"容器","cpuArch":"x86_64","business":"支付服务","ipv4":"10.0.0.42","environment":"生产","os":"Ubuntu","networkZone":"prod-app","cpu":"8C","memory":"32GB","disk":"1TB","deploymentInfo":"Docker","owner":"李明","status":"运行中"}`))
 	invalidReq.Header.Set("Authorization", "Bearer "+token)
 	invalidRec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(invalidRec, invalidReq)
@@ -717,7 +847,7 @@ func TestMiddlewareCredentialRoutesMaskAndRevealSecret(t *testing.T) {
 }
 
 func TestOpsEngineerCannotReadMiddlewareCredential(t *testing.T) {
-	store := &mutationStore{}
+	store := newOpsMutationStore()
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
@@ -790,7 +920,7 @@ func TestOnCallRejectsInvalidRuleType(t *testing.T) {
 }
 
 func TestOpsEngineerCannotWriteOnCall(t *testing.T) {
-	store := &mutationStore{}
+	store := newOpsMutationStore()
 	signer := auth.NewSigner("secret", time.Hour)
 	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})

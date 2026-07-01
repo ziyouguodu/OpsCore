@@ -23,6 +23,7 @@ SMOKE_ASSET_ID=
 SMOKE_TASK_ID=
 SMOKE_INCIDENT_ID=
 SMOKE_ONCALL_ID=
+ADMIN_USER_ID=
 
 json_string() {
   key="$1"
@@ -95,6 +96,7 @@ if [ -z "$ADMIN_TOKEN" ]; then
 fi
 
 request GET /api/auth/me "" "$ADMIN_TOKEN" 200
+ADMIN_USER_ID=$(json_id id)
 if printf '%s' "$LAST_BODY" | grep -q '"mustChangePassword":true'; then
   request GET /api/dashboard "" "$ADMIN_TOKEN" 403
   echo "PASS initial-password gate is active. Initialize the admin password, then rerun this smoke test for the full flow."
@@ -102,6 +104,8 @@ if printf '%s' "$LAST_BODY" | grep -q '"mustChangePassword":true'; then
 fi
 
 request GET /api/dashboard "" "$ADMIN_TOKEN" 200
+request PUT "/api/users/$ADMIN_USER_ID" "{\"username\":\"$ADMIN_USERNAME\",\"displayName\":\"超级管理员\",\"mustChangePassword\":false,\"roles\":[\"ops_engineer\"]}" "$ADMIN_TOKEN" 409
+request POST /api/auth/login "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\",\"unexpected\":true}" "" 400
 
 request POST /api/users "{\"username\":\"$ops_username\",\"displayName\":\"Smoke Ops\",\"password\":\"$ops_password\",\"mustChangePassword\":false,\"roles\":[\"ops_engineer\"]}" "$ADMIN_TOKEN" 201
 SMOKE_USER_ID=$(json_id id)
@@ -110,8 +114,10 @@ request POST /api/auth/login "{\"username\":\"$ops_username\",\"password\":\"$op
 OPS_TOKEN=$(json_string token)
 
 request POST /api/users "{\"username\":\"blocked_$stamp\",\"displayName\":\"Blocked\",\"password\":\"$ops_password\",\"roles\":[\"ops_engineer\"]}" "$OPS_TOKEN" 403
+request GET /api/duty-center "" "$OPS_TOKEN" 200
+request PUT /api/duty-center "{\"revision\":0,\"data\":{\"teams\":[],\"members\":[],\"schedules\":[],\"assignments\":{},\"currentPeople\":[],\"handovers\":[],\"escalation\":{\"name\":\"\",\"team\":\"\",\"severity\":\"\",\"levels\":[]}}}" "$OPS_TOKEN" 403
 
-request POST /api/assets "{\"type\":\"物理机\",\"cpuArch\":\"x86_64\",\"business\":\"smoke-business\",\"ipv4\":\"10.255.0.10\",\"environment\":\"生产\",\"os\":\"Ubuntu\",\"networkZone\":\"smoke-zone\",\"cpu\":\"4C\",\"memory\":\"8GB\",\"disk\":\"100GB\",\"deploymentInfo\":\"smoke-deploy\",\"owner\":\"Smoke Ops\",\"connectedStatus\":\"已并网\",\"status\":\"运行中\"}" "$OPS_TOKEN" 201
+request POST /api/assets "{\"type\":\"物理机\",\"cpuArch\":\"x86_64\",\"business\":\"smoke-business\",\"ipv4\":\"10.255.0.10\",\"environment\":\"生产\",\"os\":\"Ubuntu\",\"networkZone\":\"smoke-zone\",\"cpu\":\"4C\",\"memory\":\"8GB\",\"disk\":\"100GB\",\"deploymentInfo\":\"smoke-deploy\",\"owner\":\"Smoke Ops\",\"status\":\"运行中\"}" "$OPS_TOKEN" 201
 SMOKE_ASSET_ID=$(json_id id)
 
 request PUT "/api/assets/$SMOKE_ASSET_ID/credential" "{\"loginUrl\":\"ssh://10.255.0.10\",\"username\":\"root\",\"secret\":\"SmokeSecret123\",\"notes\":\"smoke\"}" "$OPS_TOKEN" 403
@@ -134,6 +140,8 @@ if ! printf '%s' "$LAST_BODY" | grep -q '"type":"任务"'; then
 fi
 request POST /api/tasks "{\"title\":\"Bad task\",\"status\":\"挂起\"}" "$ADMIN_TOKEN" 400
 request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 200
+request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"已关闭\"}" "$ADMIN_TOKEN" 200
+request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 409
 
 request POST /api/incidents "{\"title\":\"Smoke incident\"}" "$ADMIN_TOKEN" 201
 SMOKE_INCIDENT_ID=$(json_id id)
@@ -143,6 +151,8 @@ if ! printf '%s' "$LAST_BODY" | grep -q '"level":"P3"'; then
 fi
 request POST /api/incidents "{\"title\":\"Bad incident\",\"level\":\"P0\"}" "$ADMIN_TOKEN" 400
 request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 200
+request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"已关闭\"}" "$ADMIN_TOKEN" 200
+request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 409
 
 request POST /api/oncall "{\"ruleType\":\"monthly\",\"primary\":\"Smoke Ops\"}" "$ADMIN_TOKEN" 400
 request POST /api/oncall "{\"ruleType\":\"daily\",\"date\":\"2026-06-08\",\"primary\":\"Smoke Ops\",\"backup\":\"Smoke Backup\"}" "$ADMIN_TOKEN" 201

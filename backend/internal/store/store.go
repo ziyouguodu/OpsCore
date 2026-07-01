@@ -14,6 +14,7 @@ import (
 
 	"opscore/backend/internal/auth"
 	secretcrypto "opscore/backend/internal/crypto"
+	"opscore/backend/internal/domain"
 	"opscore/backend/internal/models"
 )
 
@@ -23,6 +24,8 @@ type Store struct {
 }
 
 var ErrForbiddenAssetDelete = errors.New("only super admin or asset creator can delete asset")
+var ErrLastSuperAdmin = errors.New("at least one super admin is required")
+var ErrStatusConflict = errors.New("status changed concurrently or transition is invalid")
 
 const credentialVerificationPasswordKey = "credential_verification_password_hash"
 const copilotConfigKey = "copilot_config"
@@ -60,7 +63,7 @@ func (s *Store) Close() {
 }
 
 func (s *Store) SeedDefaults(ctx context.Context, adminPassword string) error {
-	if _, err := s.pool.Exec(ctx, schemaSQL); err != nil {
+	if err := s.runMigrations(ctx); err != nil {
 		return err
 	}
 
@@ -419,6 +422,24 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, item models.UserMutati
 		return models.UserListItem{}, err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext('opscore:super-admin-role'))`); err != nil {
+		return models.UserListItem{}, err
+	}
+	if !hasRoleCode(item.Roles, auth.RoleSuperAdmin) {
+		var targetIsAdmin bool
+		var adminCount int
+		if err := tx.QueryRow(ctx, `select exists(select 1 from user_roles ur join roles r on r.id=ur.role_id where ur.user_id=$1 and r.code=$2)`, id, auth.RoleSuperAdmin).Scan(&targetIsAdmin); err != nil {
+			return models.UserListItem{}, err
+		}
+		if targetIsAdmin {
+			if err := tx.QueryRow(ctx, `select count(*) from user_roles ur join roles r on r.id=ur.role_id where r.code=$1`, auth.RoleSuperAdmin).Scan(&adminCount); err != nil {
+				return models.UserListItem{}, err
+			}
+			if adminCount <= 1 {
+				return models.UserListItem{}, ErrLastSuperAdmin
+			}
+		}
+	}
 
 	tag, err := tx.Exec(ctx, `
 		update users set username=$2, display_name=$3, must_change_password=$4, updated_at=now()
@@ -449,14 +470,44 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, item models.UserMutati
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
-	tag, err := s.pool.Exec(ctx, `delete from users where id=$1`, id)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock(hashtext('opscore:super-admin-role'))`); err != nil {
+		return err
+	}
+	var targetIsAdmin bool
+	var adminCount int
+	if err := tx.QueryRow(ctx, `select exists(select 1 from user_roles ur join roles r on r.id=ur.role_id where ur.user_id=$1 and r.code=$2)`, id, auth.RoleSuperAdmin).Scan(&targetIsAdmin); err != nil {
+		return err
+	}
+	if targetIsAdmin {
+		if err := tx.QueryRow(ctx, `select count(*) from user_roles ur join roles r on r.id=ur.role_id where r.code=$1`, auth.RoleSuperAdmin).Scan(&adminCount); err != nil {
+			return err
+		}
+		if adminCount <= 1 {
+			return ErrLastSuperAdmin
+		}
+	}
+	tag, err := tx.Exec(ctx, `delete from users where id=$1`, id)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return errors.New("user not found")
 	}
-	return nil
+	return tx.Commit(ctx)
+}
+
+func hasRoleCode(roles []string, expected string) bool {
+	for _, role := range roles {
+		if role == expected {
+			return true
+		}
+	}
+	return false
 }
 
 type roleSetter interface {
@@ -514,7 +565,7 @@ func (s *Store) userListItem(ctx context.Context, id int64) (models.UserListItem
 }
 
 func (s *Store) ListAssets(ctx context.Context) ([]models.Asset, error) {
-	rows, err := s.pool.Query(ctx, `select id, coalesce(created_by, 0), asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, connected_status, host_machine, created_at, updated_at from assets order by updated_at desc`)
+	rows, err := s.pool.Query(ctx, `select id, coalesce(created_by, 0), asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, host_machine, created_at, updated_at from assets order by updated_at desc`)
 	if err != nil {
 		return nil, err
 	}
@@ -522,7 +573,7 @@ func (s *Store) ListAssets(ctx context.Context) ([]models.Asset, error) {
 	items := []models.Asset{}
 	for rows.Next() {
 		var item models.Asset
-		if err := rows.Scan(&item.ID, &item.CreatedBy, &item.AssetNo, &item.Type, &item.Vendor, &item.CPUArch, &item.SN, &item.Location, &item.Business, &item.IPv4, &item.IPv6, &item.Environment, &item.OS, &item.Hostname, &item.NetworkZone, &item.CPU, &item.Memory, &item.Disk, &item.DeploymentInfo, &item.Owner, &item.Status, &item.ConnectedStatus, &item.HostMachine, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.CreatedBy, &item.AssetNo, &item.Type, &item.Vendor, &item.CPUArch, &item.SN, &item.Location, &item.Business, &item.IPv4, &item.IPv6, &item.Environment, &item.OS, &item.Hostname, &item.NetworkZone, &item.CPU, &item.Memory, &item.Disk, &item.DeploymentInfo, &item.Owner, &item.Status, &item.HostMachine, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -547,20 +598,17 @@ func (s *Store) UpsertAsset(ctx context.Context, item models.Asset) (models.Asse
 	if item.Status == "" {
 		item.Status = "运行中"
 	}
-	if item.ConnectedStatus == "" {
-		item.ConnectedStatus = "已并网"
-	}
 	row := s.pool.QueryRow(ctx, `
-		insert into assets(created_by, asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, connected_status, host_machine)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		insert into assets(created_by, asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, host_machine)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 		on conflict (asset_no) do update set
 			type=excluded.type, vendor=excluded.vendor, cpu_arch=excluded.cpu_arch, sn=excluded.sn, location=excluded.location,
 			business=excluded.business, ipv4=excluded.ipv4, ipv6=excluded.ipv6, environment=excluded.environment, os=excluded.os,
 			hostname=excluded.hostname, network_zone=excluded.network_zone, cpu=excluded.cpu, memory=excluded.memory, disk=excluded.disk,
 			deployment_info=excluded.deployment_info, owner=excluded.owner, status=excluded.status,
-			connected_status=excluded.connected_status, host_machine=excluded.host_machine, updated_at=now()
+			host_machine=excluded.host_machine, updated_at=now()
 		returning id, created_at, updated_at
-	`, nullableUserID(item.CreatedBy), item.AssetNo, item.Type, item.Vendor, item.CPUArch, item.SN, item.Location, item.Business, item.IPv4, item.IPv6, item.Environment, item.OS, item.Hostname, item.NetworkZone, item.CPU, item.Memory, item.Disk, item.DeploymentInfo, item.Owner, item.Status, item.ConnectedStatus, item.HostMachine)
+	`, nullableUserID(item.CreatedBy), item.AssetNo, item.Type, item.Vendor, item.CPUArch, item.SN, item.Location, item.Business, item.IPv4, item.IPv6, item.Environment, item.OS, item.Hostname, item.NetworkZone, item.CPU, item.Memory, item.Disk, item.DeploymentInfo, item.Owner, item.Status, item.HostMachine)
 	if err := row.Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return models.Asset{}, err
 	}
@@ -571,17 +619,14 @@ func (s *Store) updateAsset(ctx context.Context, id int64, item models.Asset) (m
 	if item.Status == "" {
 		item.Status = "运行中"
 	}
-	if item.ConnectedStatus == "" {
-		item.ConnectedStatus = "已并网"
-	}
 	row := s.pool.QueryRow(ctx, `
 		update assets set
 			asset_no=$2, type=$3, vendor=$4, cpu_arch=$5, sn=$6, location=$7, business=$8, ipv4=$9, ipv6=$10,
 			environment=$11, os=$12, hostname=$13, network_zone=$14, cpu=$15, memory=$16, disk=$17,
-			deployment_info=$18, owner=$19, status=$20, connected_status=$21, host_machine=$22, updated_at=now()
+			deployment_info=$18, owner=$19, status=$20, host_machine=$21, updated_at=now()
 		where id=$1
 		returning id, created_at, updated_at
-	`, id, item.AssetNo, item.Type, item.Vendor, item.CPUArch, item.SN, item.Location, item.Business, item.IPv4, item.IPv6, item.Environment, item.OS, item.Hostname, item.NetworkZone, item.CPU, item.Memory, item.Disk, item.DeploymentInfo, item.Owner, item.Status, item.ConnectedStatus, item.HostMachine)
+	`, id, item.AssetNo, item.Type, item.Vendor, item.CPUArch, item.SN, item.Location, item.Business, item.IPv4, item.IPv6, item.Environment, item.OS, item.Hostname, item.NetworkZone, item.CPU, item.Memory, item.Disk, item.DeploymentInfo, item.Owner, item.Status, item.HostMachine)
 	if err := row.Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return models.Asset{}, err
 	}
@@ -913,13 +958,28 @@ func (s *Store) CreateTask(ctx context.Context, item models.Task) (models.Task, 
 }
 
 func (s *Store) UpdateTask(ctx context.Context, id int64, item models.Task) (models.Task, error) {
-	row := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	var current string
+	if err := tx.QueryRow(ctx, `select status from tasks where id=$1 for update`, id).Scan(&current); err != nil {
+		return models.Task{}, err
+	}
+	if current != item.Status && !domain.CanTransitionTask(domain.TaskStatus(current), domain.TaskStatus(item.Status)) {
+		return models.Task{}, ErrStatusConflict
+	}
+	row := tx.QueryRow(ctx, `
 		update tasks set
 			title=$2, type=$3, assignee=$4, status=$5, due_at=$6, description=$7, updated_at=now()
 		where id=$1
 		returning id, created_at, updated_at
 	`, id, item.Title, item.Type, item.Assignee, item.Status, item.DueAt, item.Description)
 	if err := row.Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return models.Task{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return models.Task{}, err
 	}
 	return item, nil
@@ -937,8 +997,22 @@ func (s *Store) DeleteTask(ctx context.Context, id int64) error {
 }
 
 func (s *Store) UpdateTaskStatus(ctx context.Context, id int64, status string) error {
-	_, err := s.pool.Exec(ctx, `update tasks set status=$2, updated_at=now() where id=$1`, id, status)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var current string
+	if err := tx.QueryRow(ctx, `select status from tasks where id=$1 for update`, id).Scan(&current); err != nil {
+		return err
+	}
+	if current != status && !domain.CanTransitionTask(domain.TaskStatus(current), domain.TaskStatus(status)) {
+		return ErrStatusConflict
+	}
+	if _, err := tx.Exec(ctx, `update tasks set status=$2, updated_at=now() where id=$1`, id, status); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) GetTaskStatus(ctx context.Context, id int64) (string, error) {
@@ -973,7 +1047,19 @@ func (s *Store) CreateIncident(ctx context.Context, item models.Incident) (model
 }
 
 func (s *Store) UpdateIncident(ctx context.Context, id int64, item models.Incident) (models.Incident, error) {
-	row := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.Incident{}, err
+	}
+	defer tx.Rollback(ctx)
+	var current string
+	if err := tx.QueryRow(ctx, `select status from incidents where id=$1 for update`, id).Scan(&current); err != nil {
+		return models.Incident{}, err
+	}
+	if current != item.Status && !domain.CanTransitionIncident(domain.IncidentStatus(current), domain.IncidentStatus(item.Status)) {
+		return models.Incident{}, ErrStatusConflict
+	}
+	row := tx.QueryRow(ctx, `
 		update incidents set
 			title=$2, level=$3, status=$4, owner=$5, business=$6, started_at=$7,
 			recovered_at=$8, summary=$9, updated_at=now()
@@ -981,6 +1067,9 @@ func (s *Store) UpdateIncident(ctx context.Context, id int64, item models.Incide
 		returning id, created_at, updated_at
 	`, id, item.Title, item.Level, item.Status, item.Owner, item.Business, item.StartedAt, item.RecoveredAt, item.Summary)
 	if err := row.Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return models.Incident{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return models.Incident{}, err
 	}
 	return item, nil
@@ -998,8 +1087,22 @@ func (s *Store) DeleteIncident(ctx context.Context, id int64) error {
 }
 
 func (s *Store) UpdateIncidentStatus(ctx context.Context, id int64, status string) error {
-	_, err := s.pool.Exec(ctx, `update incidents set status=$2, updated_at=now() where id=$1`, id, status)
-	return err
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var current string
+	if err := tx.QueryRow(ctx, `select status from incidents where id=$1 for update`, id).Scan(&current); err != nil {
+		return err
+	}
+	if current != status && !domain.CanTransitionIncident(domain.IncidentStatus(current), domain.IncidentStatus(status)) {
+		return ErrStatusConflict
+	}
+	if _, err := tx.Exec(ctx, `update incidents set status=$2, updated_at=now() where id=$1`, id, status); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) GetIncidentStatus(ctx context.Context, id int64) (string, error) {

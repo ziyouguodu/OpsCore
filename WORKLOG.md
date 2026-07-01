@@ -1,5 +1,58 @@
 # WORKLOG.md
 
+## 2026-06-29 - 前端组件化、实时指标与全量交互回归
+
+- 将首页、资产、实例、值班、任务、事件、权限、AI Copilot 配置、登录/首次密码初始化、侧栏、顶栏、分页和确认弹窗从 `App.vue` 拆为聚焦组件；`App.vue` 只保留全局状态和 API 编排。
+- 新增 `frontend/src/dashboard-metrics.js`，首页资产健康率、任务闭环率、事件闭环率和平均响应时长改为基于真实记录计算；没有有效样本时显示 `--`，不再展示与实际数据矛盾的固定指标。
+- 新增 `frontend/src/duty-date.js`，值班日历、未来排班、值班列表和交接记录均相对当前日期生成，移除固定 `2026-06-10` 日期依赖。
+- 值班组件改为保留已保存的本地工作区状态，切换页面时仅关闭未保存弹窗；升级策略取消或离页会恢复保存前草稿。
+- 六类值班弹窗统一增加 `role="dialog"`、`aria-modal` 和标题关联；团队、人员、排班、交接、分配和升级策略均可被辅助技术稳定识别。
+- AI Copilot 厂商卡改为语义化按钮，支持键盘焦点；普通运维工程师的模型厂商、Endpoint、模型、Key、上下文授权、测试和保存控件全部明确禁用。
+- 清理旧版值班页、内嵌顶栏和内嵌侧栏遗留 CSS，构建 CSS 从约 58 KB 降至约 50 KB。
+- Playwright E2E 扩展为 3 个用例，新增权限/AI 独立工作区、分页容量切换、值班 Tab 状态保持和 `ops_engineer` UI RBAC 验证。
+- 真实浏览器巡检发现并修复首页第二行健康指标文字挤压；修复后主标题、数值和支持数据使用稳定三行层级。
+- 验证结果：
+  - `cd frontend && npm run test:unit` 通过，11 个单元/结构测试全部通过。
+  - `cd frontend && npm run build` 通过，33 个模块完成生产构建。
+  - `ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 在本轮中间版本通过，3 个 Chromium 用例全部通过；认证拆分和实时指标最终改动仍需额度恢复后再补跑一次最终 E2E。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 与 `go vet ./...` 通过。
+  - `cd deploy && docker compose up --build -d` 已按最新代码重新构建，前端、后端和 PostgreSQL 均已启动。
+  - 当前 `scripts/smoke-api.sh` 在沙箱内因 Docker socket 权限被拒绝；最终 Smoke 需在允许 Docker socket 的执行窗口补跑。
+  - 应用内浏览器已完成登录、首页 KPI 跳转、值班日期、值班弹窗语义、值班 Tab 状态保持、权限工作区和控制台日志检查；最终桌面/移动截图因外部浏览器执行额度限制需在 19:22 后补齐。
+
+## 2026-06-26 - 统一危险操作确认弹窗
+
+- 新增 `frontend/src/components/ConfirmDialog.vue`，统一资产、实例、任务、事件、值班记录、排班模板和用户删除的危险操作确认体验。
+- 新增 `frontend/src/composables/useConfirmDialog.js`，将确认弹窗状态、请求、取消、确认执行和焦点返回逻辑从 `App.vue` 抽离，降低主文件继续膨胀的风险。
+- 新增 `frontend/src/navigation.js` 和 `frontend/src/ui/icons.js`，集中维护菜单、路由页面元信息和线性图标路径。
+- 新增 `frontend/src/components/SidebarNav.vue`，将左侧分级菜单从 `App.vue` 抽离为独立组件，并保留菜单展开、灰度占位和二级菜单点击行为。
+- 新增 `frontend/src/components/Topbar.vue`，将顶层标题、面包屑、加载/错误提示和退出入口从 `App.vue` 抽离为独立组件。
+- 替换前端 7 处浏览器原生 `window.confirm`，确认弹窗支持取消、关闭、遮罩、Escape、处理中禁用和焦点返回。
+- Playwright UI 巡检新增确认弹窗覆盖：通过 API 创建临时巡检资产，仅删除该测试资产，验证取消、Escape、确认删除和无浏览器原生确认框。
+- 修正本地源码 E2E 环境：Vite dev server 增加 `/api` 代理，前端 API 默认值改为 `/api`，与 Docker Nginx 反代行为保持一致。
+- `AGENTS.md` 已同步危险删除确认弹窗规则，`README.md` 已同步本地 Vite API 代理说明。
+- 验证结果：
+  - 红灯验证：新增 E2E 在实现前按预期失败，原因是 `confirm-dialog` 不存在。
+  - `cd frontend && npm run build` 通过。
+  - `PLAYWRIGHT_BASE_URL='http://127.0.0.1:5174' ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 通过，登录页与一期逐页点击巡检共 2 个用例通过。
+  - `cd deploy && docker compose up --build -d` 已重新构建前端与后端镜像，前端、后端和 PostgreSQL 均处于运行状态。
+  - `docker compose ps` 确认 `deploy-frontend-1`、`deploy-backend-1`、`deploy-postgres-1` 正常运行。
+  - `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过。
+  - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+  - 重建后默认端口 `ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 通过。
+  - 抽离确认弹窗控制器、导航配置、图标路径、侧边栏组件和顶层标题栏组件后，`cd frontend && npm run build` 与 `ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 均通过。
+  - 最终复检：`cd deploy && docker compose up --build -d` 后，`ADMIN_PASSWORD='OpsCore2026' npm run test:e2e`、`GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...`、`ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh`、`docker compose ps`、`git diff --check` 均通过。
+
+## 2026-06-26 - 前端结构继续拆分
+
+- 新增 `frontend/src/components/SvgIcon.vue`，统一线性图标渲染，侧边栏、首页 KPI、角色卡和 Copilot 操作按钮不再重复内联 SVG 路径模板。
+- 新增 `frontend/src/components/CopilotWidget.vue`，将 AI Copilot 悬浮入口、聊天窗口、隐藏/放大按钮和输入区从 `App.vue` 抽离；问答上下文和回答生成逻辑仍保留在 `App.vue`。
+- 当前验证：
+  - `cd frontend && npm run build` 通过。
+  - `git diff --check` 通过。
+  - 原生 `window.confirm` / `window.prompt` / `window.alert` 残留扫描通过。
+- 当前限制：本轮 Playwright E2E 外部执行被额度限制拒绝，提示需等到 19:35 后恢复；为避免扩大未验证交互改动，后续页面级拆分暂停，额度恢复后优先补跑 `ADMIN_PASSWORD='OpsCore2026' npm run test:e2e`。
+
 ## 2026-06-25 - AI Copilot Endpoint SSRF 防护加固
 
 - AI Copilot 配置保存与连接测试统一执行 Endpoint 地址策略校验，hosted provider 不能保存 loopback、私网、链路本地或云元数据服务地址。
@@ -417,3 +470,59 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
   - `cd deploy && docker compose up --build -d` 已重新构建并启动前端、后端和 PostgreSQL。
   - `http://localhost:5173/` 返回 200，`http://localhost:8080/api/health` 返回 `{"status":"ok"}`。
   - `ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 通过。
+
+## 2026-06-27 - 前端结构、分页与视觉巡检优化
+
+- 将首页 KPI、运营指标、事件/任务优先级和事件响应流程提取为 `DashboardView.vue`，保持原有跳转和优先级项交互。
+- 新增统一 `PaginationBar.vue`，替换资产、中间件、任务和事件四处重复分页；补齐上一页/下一页可访问名称、边界禁用和窗口化页码。
+- Playwright 先验证旧分页缺少可访问名称和边界禁用，再验证新组件通过；完整一期页面点击巡检继续通过。
+- 清理旧版值班单条/批量录入、旧接班/交接确认、旧概览计算等不可达逻辑，并移除未使用的事件状态统计，`App.vue` 从 3536 行降至 3183 行。
+- 真实浏览器视觉巡检发现 1280px 桌面宽度下登录主标题孤字换行；新增标题高度回归断言并将桌面固定字号调整为 56px，复截图确认标题单行完整显示。
+- 将关闭状态的 AI Copilot 入口从页面右下角悬浮按钮迁到顶栏图标按钮，避免遮挡首页事件响应流程；聊天窗的放大、还原、隐藏和发送交互保持不变。
+- 更新 `AGENTS.md`，补充聚焦组件目录、统一分页、Copilot 顶栏入口和登录页视觉回归约定。
+- 视觉巡检产物保存于 `output/playwright/`，覆盖登录页、首页、资产台账和值班概览。
+- 最终验证：`npm run build`、`GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...`、`ADMIN_PASSWORD='OpsCore2026' npm run test:e2e`（2/2）、`ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 和 `docker compose up --build -d` 均通过。
+- `docker compose ps` 确认 frontend、backend 均为 Up，PostgreSQL 为 Up (healthy)。最终宿主机 `curl` 复检因外部执行额度限制未执行；Playwright 已从 5173 访问前端，API Smoke 已完成真实登录、资产、凭据、任务、事件和值班接口验证。
+
+## 2026-06-29 - 一期业务页组件化与全栈回归
+
+- 按页面边界新增 `TaskView.vue`、`IncidentView.vue`、`AssetView.vue`、`MiddlewareView.vue` 和 `DutyManagementView.vue`，将任务、事件、资产、实例和值班工作区从 `App.vue` 中分离。
+- `App.vue` 保留认证、全局数据、API 请求、RBAC 判断和统一确认流程；页组件通过明确 props/emits 连接，文件行数从 3183 降至 2083。
+- 值班页专属的 Tab、日历、团队、排班、人员、交接和升级策略状态收敛到 `DutyManagementView.vue`；写操作统一受 `canWriteOncall` 控制，删除排班继续复用全局应用内确认弹窗。
+- Playwright 为五个业务工作区新增可访问 `region` 断言；每个断言均先在旧实现上失败，再在组件拆分后通过。
+- 逐组件执行 `npm run build`、`docker compose up --build -d` 和一期页面点击巡检，确认筛选、表单打开/取消、详情隐藏、删除确认、分页、值班 Tab/弹窗和 Copilot 入口无回归。
+- 全量验证通过：`go test ./...`、`go vet ./...`、`npm run build`、`ADMIN_PASSWORD=OpsCore2026 npm run test:e2e`（2/2）、`ADMIN_PASSWORD=OpsCore2026 scripts/smoke-api.sh` 和 Docker Compose 重建。
+- 真实浏览器截图已复核登录、首页、资产、实例和值班页，未发现重叠、溢出或表格横线错位。继续截取任务、事件、权限和 Copilot 页时遇到外部 Playwright 执行额度限制，该项未写为已完成。
+- 静态审查发现值班页的“今天”和“未来 3 天”固定在 `2026-06-10`；新增 `src/duty-date.js` 和 Node 原生单元测试，将排班生成、未来值班、当天标记、接班日期和交接时间改为基于实际当前日期计算。
+- `npm run test:unit` 先在辅助函数缺失时 2/2 失败，实现后 2/2 通过；随后 `npm run build` 通过并完成 Docker Compose 镜像重建。
+- 继续拆分 `AuthView.vue`、`PermissionsView.vue` 和 `CopilotSettingsView.vue`，应用壳不再直接承载登录页、权限页和 Copilot 配置页模板；新增组件边界测试防止页面逻辑回流。
+- 首页健康指标改为根据真实资产、实例、任务和事件数据计算；无有效数据时展示 `--`，不再使用固定的健康率、响应时间和闭环率演示数字。
+- 清理已废弃的旧值班布局 CSS，前端构建 CSS 体积由约 58 KB 降至约 50 KB；值班日期改为按当前日期生成，避免固定年份数据。
+- 真实浏览器 1280×720 巡检确认首页指标文案不再重叠，8 个一期路由直达并刷新后均保留当前页面，且每页只有一个一级标题、无默认弹窗、无页面级横向溢出和控制台错误。
+- 390×844 视觉巡检发现折叠侧栏的高优先级网格规则把主内容压缩到 82px；先增加失败的 Playwright 回归，再修复小屏单列网格，修复后主内容宽 390px、KPI 宽约 342px。
+- 小屏隐藏桌面侧栏后新增顶栏移动导航按钮、遮罩抽屉和选择页面后自动关闭逻辑；Playwright 已覆盖抽屉打开、切换到任务跟踪和自动关闭。
+- 修复跨模块导航保留旧滚动位置的问题；真实浏览器从值班页 `667.5px` 位置切换任务页后已回到 `0px`，对应 Playwright 回归已加入并等待完整 E2E 续跑。
+- 后端权限审查发现授权使用 Token 中旧角色的问题；新增角色降级回归测试并改为每次请求使用数据库当前角色，目标测试已由 200 错误放行转为预期 403。
+- README 明确值班中心当前持久化边界：后端已支持基础 `daily` / `weekly` 值班记录，团队、模板、日历分配、交接和升级策略仍需后续领域表与 API。
+- 部署审查将前端镜像依赖安装改为 `npm ci`，并为 backend/frontend 增加健康检查；frontend 改为等待 backend 健康后启动，Compose 状态可直接反映三层服务可用性。
+- 后端全包回归发现旧测试夹具仍把数据库用户固定为 `super_admin`，与“按数据库当前角色授权”的新规则冲突；统一补齐 `ops_engineer` 用户夹具后，资产允许写入和用户/凭据/值班禁止写入场景均按真实当前角色验证。
+- 最终验证已补齐：前端单元测试 12/12、生产构建、Chromium E2E 5/5、后端 `go test -count=1 ./...`、`go vet ./...`、最终镜像重建后的 API Smoke 和 `git diff --check` 均通过。
+- Playwright CLI 复核 1280×720 登录页、首页、值班、权限、Copilot 配置页以及 390×844 移动首页/导航抽屉；页面无框架错误、控制台无 error/warn、无页面级横向溢出，移动导航切换任务页后自动关闭。Browser 插件在布局截图阶段连续超时，按既有授权回退仓库 Playwright Chromium 完成视觉证据采集。
+- 最终执行 `docker compose up --build -d`，frontend、backend、PostgreSQL 均为 `healthy`；静态扫描未发现原生 `alert/confirm/prompt`、调试输出、固定生产日期、表格单元格 flex 或默认开启演示数据。
+
+## 2026-06-30 - 全量代码审查修复与值班持久化
+
+- 用户与角色：存储层使用事务级 advisory lock 保护超级管理员角色，禁止降级或删除系统最后一个 `super_admin`；接口返回 409，权限页同步禁用唯一管理员的角色下调。
+- 任务与事件：状态更新和完整编辑均在 PostgreSQL `FOR UPDATE` 行锁事务内再次校验状态流转，消除并发请求基于旧状态产生非法回退的竞态。
+- 值班中心：新增 `/api/duty-center` 读写接口和 `duty_center_state` 持久化表，覆盖团队、系统用户成员、排班模板、日历分配、当前值班、交接日志和升级策略；revision 乐观锁阻止多用户静默覆盖。
+- 值班前端移除固定人员、告警和响应指标，所有统计改为真实持久化数据计算；补齐成员编辑/移除、团队引用保护、升级层级增删和明确空状态。
+- 会话安全：API 错误保留 HTTP status，已认证请求返回 401 时统一清理会话；Bearer Token 从 `localStorage` 改为标签页级 `sessionStorage`。
+- HTTP 加固：JSON 请求体限制为 1 MiB，拒绝未知字段和尾随 JSON；Go HTTP Server 增加读写、Header、Idle 超时和 SIGTERM 优雅退出；Nginx 增加 CSP、禁止嵌入、MIME 嗅探和权限策略响应头。
+- 数据库：引入 `schema_migrations` 版本记录，现有结构作为 `001_initial`，值班中心作为 `002_duty_center`，迁移只执行一次并在事务中提交。
+- 资产台账：取消已从产品设计移除的“并网状态”字段，迁移 `003_remove_connected_status` 同步删除旧数据库列。
+- 结构整理：后端校验规则拆至 `validation.go`，前端演示数据与权限/Copilot 静态配置拆至独立模块。
+- 行为验证：扩展 API Smoke，覆盖最后管理员保护、未知 JSON 字段、值班读写权限以及任务/事件关闭后不可回退；Playwright 使用真实 API 临时建立值班数据，验证 UI 保存后刷新仍存在并在测试后恢复原状态。
+- 全量 E2E 复验发现值班中心 revision 大于 0 后无法继续保存；存储层改为事务内按 revision 条件更新，仅在 revision 为 0 时初始化插入，修复后刷新持久化与并发冲突检查均通过。
+- 桌面视觉复验发现无值班人员时“值班均衡度”错误显示 100%；新增 `calculateDutyBalance` 纯逻辑及回归测试，无有效样本时统一显示 `--`。
+- 最终验证结果：前端单元测试 16/16、生产构建、Chromium E2E 5/5、后端 `go test -count=1 ./...`、`go vet ./...`、扩展 API Smoke、迁移版本与字段检查、Nginx 安全响应头、`git diff --check` 和 Docker Compose 三容器健康检查均通过。
+- Playwright CLI 已完成 1280×720 值班页和 390×844 值班页/首页截图复验；移动端 `scrollWidth` 与 `clientWidth` 均为 390，控制台 error/warn 均为 0，未发现页面级横向溢出或组件重叠。

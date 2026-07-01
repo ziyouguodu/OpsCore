@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"opscore/backend/internal/api"
@@ -56,9 +58,33 @@ func main() {
 	signer := auth.NewSigner(cfg.JWTSecret, 24*time.Hour)
 	server := api.NewServer(db, signer, cfg)
 
-	log.Printf("OpsCore API listening on %s", cfg.ListenAddr)
-	if err := http.ListenAndServe(cfg.ListenAddr, server.Routes()); err != nil && err != http.ErrServerClosed {
-		log.Println(err)
-		os.Exit(1)
+	httpServer := newHTTPServer(cfg.ListenAddr, server.Routes())
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("OpsCore API listening on %s", cfg.ListenAddr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("serve API: %v", err)
+			stop()
+		}
+	}()
+
+	<-runCtx.Done()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown API: %v", err)
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 }

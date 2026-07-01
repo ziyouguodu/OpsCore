@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,34 @@ import (
 	"opscore/backend/internal/config"
 	"opscore/backend/internal/models"
 )
+
+func TestReadJSONRejectsUnknownFields(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"OpsCore","unexpected":true}`))
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(req, &body); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected unknown field error, got %v", err)
+	}
+}
+
+func TestReadJSONRejectsTrailingDocuments(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"OpsCore"}{"name":"second"}`))
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(req, &body); err == nil || !strings.Contains(err.Error(), "single JSON object") {
+		t.Fatalf("expected trailing JSON error, got %v", err)
+	}
+}
+
+func TestReadJSONRejectsOversizedBodies(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"`+strings.Repeat("x", 1<<20)+`"}`))
+	var body map[string]string
+	if err := readJSON(req, &body); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("expected body too large error, got %v", err)
+	}
+}
 
 func TestCORSAllowsConfiguredFrontendOrigin(t *testing.T) {
 	server := &Server{cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
@@ -80,5 +109,33 @@ func TestRequireAuthBlocksBusinessAPIsUntilInitialPasswordChanged(t *testing.T) 
 	handler.ServeHTTP(passwordRec, passwordReq)
 	if passwordRec.Code != http.StatusOK {
 		t.Fatalf("expected auth/password to remain available before password initialization, got %d", passwordRec.Code)
+	}
+}
+
+func TestRequirePermissionUsesCurrentStoredRoles(t *testing.T) {
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{
+		store: &mutationStore{userProfile: models.User{
+			ID:       1,
+			Username: "admin",
+			Roles:    []string{auth.RoleOpsEngineer},
+		}},
+		signer: signer,
+	}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.requirePermission(auth.PermissionUserManage, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected stored role downgrade to revoke user management, got %d", rec.Code)
 	}
 }

@@ -1,0 +1,196 @@
+<script setup>
+import PaginationBar from './PaginationBar.vue'
+
+defineProps({
+  businesses: { type: Array, default: () => [] },
+  canDelete: { type: Function, required: true },
+  canManageCredentials: { type: Boolean, default: false },
+  canWrite: { type: Boolean, default: false },
+  credential: { type: Object, required: true },
+  credentialMessage: { type: String, default: '' },
+  credentialReveal: { type: Object, required: true },
+  filters: { type: Object, required: true },
+  form: { type: Object, required: true },
+  formCredential: { type: Object, required: true },
+  formOpen: { type: Boolean, default: false },
+  isSample: { type: Function, required: true },
+  networkZones: { type: Array, default: () => [] },
+  page: { type: Number, required: true },
+  pageCount: { type: Number, required: true },
+  pageSize: { type: Number, required: true },
+  pagedAssets: { type: Array, default: () => [] },
+  selectedAsset: { type: Object, default: null },
+  spec: { type: Function, required: true },
+  total: { type: Number, default: 0 }
+})
+
+const emit = defineEmits([
+  'choose',
+  'close-form',
+  'delete',
+  'edit',
+  'export-item',
+  'hide-detail',
+  'load-credential',
+  'open-form',
+  'reset-filters',
+  'reveal-credential',
+  'save',
+  'save-credential',
+  'update:page',
+  'update:pageSize'
+])
+
+function resetPage() {
+  emit('update:page', 1)
+}
+
+function closeEditorOnFocusOut(event) {
+  const nextTarget = event.relatedTarget
+  if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+    emit('close-form')
+  }
+}
+</script>
+
+<template>
+  <section class="panel" role="region" aria-label="资产台账工作区">
+    <div class="section-head actions-only">
+      <div class="page-actions">
+        <button disabled><span class="btn-icon">↥</span>导入</button>
+        <button v-if="selectedAsset" @click="$emit('export-item', selectedAsset)"><span class="btn-icon">↧</span>导出</button>
+        <button class="primary" :disabled="!canWrite" @click="$emit('open-form')"><span class="btn-icon">＋</span>新增资产</button>
+      </div>
+    </div>
+
+    <div class="cmdb-layout" :class="{ 'single-column': !selectedAsset }">
+      <section>
+        <div class="query-card">
+          <div class="query-main">
+            <input v-model="filters.keyword" placeholder="搜索资产编号、业务、IP、负责人、部署信息" @input="resetPage" />
+            <select v-model="filters.type" @change="resetPage"><option value="">全部类型</option><option>物理机</option><option>虚拟机</option></select>
+            <select v-model="filters.environment" @change="resetPage"><option value="">全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
+            <button class="primary" @click="resetPage">查询</button>
+            <button @click="$emit('reset-filters')">重置</button>
+            <button class="link" @click="filters.advanced = !filters.advanced">{{ filters.advanced ? '收起高级搜索' : '高级搜索' }}</button>
+          </div>
+          <div v-if="filters.advanced" class="query-extra">
+            <select v-model="filters.business" @change="resetPage">
+              <option value="">全部所属业务</option>
+              <option v-for="item in businesses" :key="item">{{ item }}</option>
+            </select>
+            <select v-model="filters.networkZone" @change="resetPage">
+              <option value="">全部网络区域</option>
+              <option v-for="item in networkZones" :key="item">{{ item }}</option>
+            </select>
+          </div>
+        </div>
+
+        <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
+          <h3>{{ form.id ? '编辑资产' : '新增资产' }}</h3>
+          <div class="form-grid cmdb-form">
+            <input v-model="form.assetNo" placeholder="资产编号（留空自动生成）" />
+            <select v-model="form.type"><option>物理机</option><option>虚拟机</option></select>
+            <input v-model="form.vendor" placeholder="厂商" />
+            <input v-model="form.cpuArch" placeholder="CPU 架构" />
+            <input v-model="form.sn" placeholder="SN" />
+            <input v-model="form.location" placeholder="物理位置" />
+            <input v-model="form.business" placeholder="所属业务" />
+            <input v-model="form.ipv4" placeholder="IPv4" />
+            <input v-model="form.ipv6" placeholder="IPv6" />
+            <select v-model="form.environment"><option>生产</option><option>仿真</option><option>研发</option></select>
+            <input v-model="form.os" placeholder="操作系统" />
+            <input v-model="form.hostname" placeholder="主机名" />
+            <input v-model="form.networkZone" placeholder="网络区域" />
+            <input v-model="form.cpu" placeholder="CPU 规格" />
+            <input v-model="form.memory" placeholder="内存规格" />
+            <input v-model="form.disk" placeholder="磁盘规格" />
+            <input v-model="form.deploymentInfo" placeholder="部署信息" />
+            <input v-model="form.owner" placeholder="负责人" />
+            <input v-model="form.hostMachine" placeholder="所在宿主机（虚拟机可填）" />
+            <select v-model="form.status"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <section v-if="canManageCredentials" class="credential-inline form-wide">
+              <div>
+                <strong>登录信息</strong>
+                <span>保存后加密存储，列表不展示；查看密码需统一二次校验。</span>
+              </div>
+              <div class="form-grid credential-form-inline">
+                <input v-model="formCredential.loginUrl" placeholder="登录地址（可选）" />
+                <input v-model="formCredential.username" placeholder="登录用户名" />
+                <input v-model="formCredential.secret" placeholder="登录密码 / 密钥" type="password" />
+                <input v-model="formCredential.notes" placeholder="备注" />
+              </div>
+            </section>
+            <button class="primary" :disabled="!canWrite" @click="$emit('save')">{{ form.id ? '保存修改' : '保存资产' }}</button>
+            <button @click="$emit('close-form')">取消</button>
+          </div>
+        </section>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>资产编号</th><th>类型</th><th>环境</th><th>网络区域</th><th>IP</th><th>配置规格</th><th>所属业务</th><th>部署信息</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="asset in pagedAssets" :key="asset.id" :class="{ selected: selectedAsset?.id === asset.id }" class="clickable-row" tabindex="0" @click="$emit('choose', asset)" @keyup.enter="$emit('choose', asset)">
+                <td>{{ asset.assetNo }}</td><td>{{ asset.type }}</td><td>{{ asset.environment }}</td><td>{{ asset.networkZone }}</td><td>{{ asset.ipv4 || asset.ipv6 }}</td><td>{{ spec(asset) }}</td><td>{{ asset.business }}</td><td>{{ asset.deploymentInfo || '-' }}</td><td>{{ asset.status }}</td><td>{{ asset.owner || '-' }}</td>
+                <td class="row-actions"><button class="link" @click.stop="$emit('choose', asset)">详情</button><button class="link" :disabled="!canWrite || isSample(asset)" @click.stop="$emit('edit', asset)">编辑</button><button class="link danger-text" :disabled="!canDelete(asset)" @click.stop="$emit('delete', asset)">删除</button></td>
+              </tr>
+              <tr v-if="!pagedAssets.length"><td colspan="11" class="empty">未找到符合条件的资产</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <PaginationBar
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          :page-count="pageCount"
+          @update:page="$emit('update:page', $event)"
+          @update:page-size="$emit('update:pageSize', $event)"
+        />
+      </section>
+
+      <aside v-if="selectedAsset" class="asset-detail">
+        <div class="detail-title">
+          <h3>资产详情</h3>
+          <button class="detail-close" aria-label="隐藏资产详情" @click="$emit('hide-detail')">隐藏</button>
+        </div>
+        <dl>
+          <dt>资产编号</dt><dd>{{ selectedAsset.assetNo }}</dd>
+          <dt>厂商 / SN</dt><dd>{{ selectedAsset.vendor || '-' }} / {{ selectedAsset.sn || '-' }}</dd>
+          <dt>配置规格</dt><dd>{{ spec(selectedAsset) }}</dd>
+          <dt>部署信息</dt><dd>{{ selectedAsset.deploymentInfo || '-' }}</dd>
+          <dt>所在宿主机</dt><dd>{{ selectedAsset.hostMachine || '-' }}</dd>
+          <dt>负责人</dt><dd>{{ selectedAsset.owner || '-' }}</dd>
+        </dl>
+        <div class="detail-actions">
+          <button class="primary" :disabled="!canWrite || isSample(selectedAsset)" @click="$emit('edit', selectedAsset)">编辑资产</button>
+          <button class="danger-action" :disabled="!canDelete(selectedAsset)" @click="$emit('delete', selectedAsset)">删除资产</button>
+        </div>
+        <div class="credential-box">
+          <h4>登录信息</h4>
+          <template v-if="canManageCredentials">
+            <p class="muted">登录地址、账号与备注可维护；密码/密钥默认隐藏，需输入权限管理中配置的统一校验密码后查看。</p>
+            <div class="credential-actions">
+              <button @click="$emit('load-credential')">加载登录信息</button>
+              <span v-if="credential.hasSecret" class="pill danger">已保存密钥</span>
+              <span v-else class="pill">未保存密钥</span>
+            </div>
+            <div class="form-grid credential-form">
+              <input v-model="credential.loginUrl" placeholder="登录地址" />
+              <input v-model="credential.username" placeholder="账号" />
+              <input v-model="credential.secret" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
+              <input v-model="credential.notes" placeholder="备注" />
+              <button class="primary" @click="$emit('save-credential')">保存登录信息</button>
+            </div>
+            <div class="credential-reveal">
+              <input v-model="credentialReveal.password" placeholder="输入统一二次校验密码查看密码/密钥" type="password" @keyup.enter="$emit('reveal-credential')" />
+              <button @click="$emit('reveal-credential')">二次校验查看</button>
+              <span v-if="credentialReveal.revealed" class="pill success">已校验</span>
+            </div>
+          </template>
+          <p v-else class="muted">当前角色无权查看登录信息。运维工程师默认不可见。</p>
+          <p v-if="credentialMessage" class="error inline">{{ credentialMessage }}</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+</template>

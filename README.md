@@ -55,6 +55,8 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
 
 灰度或后续模块仅作为菜单占位，不表示已经具备完整业务能力。
 
+值班中心已通过 `GET/PUT /api/duty-center` 持久化团队、系统用户成员、排班模板、日历分配、当前值班、交接日志和升级策略，并使用 revision 乐观并发控制避免多用户静默覆盖。基础 `daily` / `weekly` 值班记录接口继续保留兼容。
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -75,7 +77,10 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
 │   ├── cmd/server/           # 服务启动入口
 │   └── internal/             # API、认证、配置、加密、领域规则、存储
 ├── frontend/                 # Vue 3 + Vite 前端
-│   ├── src/App.vue           # 当前主要应用视图和交互逻辑
+│   ├── src/App.vue           # 应用壳、全局状态和 API 编排
+│   ├── src/components/       # 认证、布局和一期业务页面组件
+│   ├── src/dashboard-metrics.js # 首页实时指标计算
+│   ├── src/duty-date.js      # 值班日期与日历计算
 │   ├── src/api.js            # API 客户端和 Token 辅助方法
 │   └── src/styles.css        # 全局样式
 ├── deploy/                   # Docker Compose 和环境变量模板
@@ -206,17 +211,19 @@ npm run dev
 前端本地开发默认配置在 `frontend/.env.example` 中：
 
 ```text
-VITE_API_BASE=http://localhost:8080/api
+VITE_API_BASE=/api
 VITE_ENABLE_DEMO_DATA=false
 ```
 
-如果后端地址不同，可创建 `frontend/.env.local` 并覆盖 `VITE_API_BASE`。生产和默认本地栈不启用前端演示数据，避免真实接口返回空数据时被样例数据掩盖。
+本地 Vite 开发服务会将 `/api` 代理到 `http://localhost:8080`，前端容器则由 Nginx 将 `/api` 反向代理到后端容器。如果后端地址不同，可创建 `frontend/.env.local` 并覆盖 `VITE_API_BASE`。生产和默认本地栈不启用前端演示数据，避免真实接口返回空数据时被样例数据掩盖。
 
 ### 前端构建
 
 ```bash
 cd frontend
+npm run test:unit
 npm run build
+npm run test:e2e
 ```
 
 ### 每次代码修改后的容器验证
@@ -279,6 +286,8 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 | `super_admin` | 用户管理、权限配置、值班写入、资产/实例凭据配置和凭据查看等全部管理能力 |
 | `ops_engineer` | 维护资产和中间件实例、处理任务、跟进事件；默认不能管理用户、修改值班排班或查看敏感凭据 |
 
+后端在每次鉴权请求中重新读取当前用户角色。管理员调整角色后，已有 Token 会立即按最新角色授权，不继续沿用登录时的旧权限。
+
 ### 敏感凭据
 
 - 资产登录信息存储在 `asset_credentials`。
@@ -314,6 +323,7 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 | 中间件与数据库 | `GET/POST /api/middleware`、`PUT/DELETE /api/middleware/{id}` |
 | 实例凭据 | `GET/PUT /api/middleware/{id}/credential`、`POST /api/middleware/{id}/credential/reveal` |
 | 值班管理 | `GET/POST /api/oncall`、`PUT/DELETE /api/oncall/{id}` |
+| 值班中心 | `GET/PUT /api/duty-center`，团队、成员、模板、日历、交接和升级策略整体持久化 |
 | 任务跟踪 | `GET/POST /api/tasks`、`PUT/DELETE /api/tasks/{id}`、`PATCH /api/tasks/{id}` |
 | 事件管理 | `GET/POST /api/incidents`、`PUT/DELETE /api/incidents/{id}`、`PATCH /api/incidents/{id}` |
 
@@ -323,6 +333,7 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 
 - 资产环境：`生产`、`仿真`、`研发`。
 - 资产类型：`物理机`、`虚拟机`。
+- 资产台账已移除“并网状态”字段；迁移 `003_remove_connected_status` 会同步清理旧数据库列。
 - 中间件类型：`MySQL`、`Redis`、`Kafka`、`PostgreSQL`、`达梦`、`Nginx`、`ElasticSearch`、`Nacos`、`RocketMQ`、`MinIO`。
 - 任务状态：`待处理`、`处理中`、`待确认`、`已完成`、`已关闭`。
 - 事件等级：`P1`、`P2`、`P3`、`P4`。
@@ -344,7 +355,7 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 
 ```bash
 cd backend && go test ./...
-cd frontend && npm run build
+cd frontend && npm run test:unit && npm run build && npm run test:e2e
 cd deploy && docker compose up --build -d
 ```
 
@@ -358,7 +369,8 @@ scripts/smoke-api.sh
 
 短期优先事项：
 
-- 将过大的 `frontend/src/App.vue` 拆分为布局、导航、资源列表、表单、凭据、任务、事件、值班和权限组件。
+- 继续把 `frontend/src/App.vue` 中的 API 编排和跨页状态提取为聚焦 composable，业务页面、认证、导航、权限和 Copilot 配置已完成首轮组件化。
+- 按值班报表查询和审计需求，将当前带 revision 的值班状态文档逐步拆分为专用关系表和历史事件表。
 - 补充前端 lint 和基础测试能力。
 - 补充 API 文档或 OpenAPI 风格接口说明。
 - 增加审计日志。

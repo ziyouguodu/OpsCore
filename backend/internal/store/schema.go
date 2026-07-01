@@ -51,14 +51,12 @@ create table if not exists assets (
 	deployment_info text not null default '',
 	owner text not null default '',
 	status text not null default '运行中',
-	connected_status text not null default '已并网',
 	host_machine text not null default '',
 	created_at timestamptz not null default now(),
 	updated_at timestamptz not null default now()
 );
 
 alter table if exists assets add column if not exists created_by bigint references users(id) on delete set null;
-alter table if exists assets add column if not exists connected_status text not null default '已并网';
 alter table if exists assets add column if not exists host_machine text not null default '';
 
 create table if not exists asset_credentials (
@@ -138,4 +136,18 @@ create table if not exists incidents (
 	created_at timestamptz not null default now(),
 	updated_at timestamptz not null default now()
 );
+`
+
+const dutyCenterSchemaSQL = `
+create table if not exists duty_center_state (
+	singleton boolean primary key default true check (singleton),
+	revision bigint not null default 0,
+	state jsonb not null default '{}'::jsonb,
+	updated_by bigint references users(id) on delete set null,
+	updated_at timestamptz not null default now()
+);
+`
+
+const removeConnectedStatusSchemaSQL = `
+alter table if exists assets drop column if exists connected_status;
 `
