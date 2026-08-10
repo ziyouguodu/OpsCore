@@ -5,10 +5,12 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/deploy/docker-compose.yml}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-ChangeMe123!}"
+CREDENTIAL_VERIFY_PASSWORD="${CREDENTIAL_VERIFY_PASSWORD:-$ADMIN_PASSWORD}"
 
 docker compose -f "$COMPOSE_FILE" exec -T \
   -e ADMIN_USERNAME="$ADMIN_USERNAME" \
   -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+  -e CREDENTIAL_VERIFY_PASSWORD="$CREDENTIAL_VERIFY_PASSWORD" \
   backend sh -s <<'EOS'
 set -eu
 
@@ -104,6 +106,13 @@ if printf '%s' "$LAST_BODY" | grep -q '"mustChangePassword":true'; then
 fi
 
 request GET /api/dashboard "" "$ADMIN_TOKEN" 200
+for resource in assets middleware tasks incidents; do
+  request GET "/api/$resource?page=1&pageSize=5&sort=updatedAt&order=desc" "" "$ADMIN_TOKEN" 200
+  if ! printf '%s' "$LAST_BODY" | grep -q '"items":\[' || ! printf '%s' "$LAST_BODY" | grep -q '"pageCount":'; then
+    echo "FAIL paginated $resource response is missing items or pageCount" >&2
+    exit 1
+  fi
+done
 request PUT "/api/users/$ADMIN_USER_ID" "{\"username\":\"$ADMIN_USERNAME\",\"displayName\":\"超级管理员\",\"mustChangePassword\":false,\"roles\":[\"ops_engineer\"]}" "$ADMIN_TOKEN" 409
 request POST /api/auth/login "{\"username\":\"$ADMIN_USERNAME\",\"password\":\"$ADMIN_PASSWORD\",\"unexpected\":true}" "" 400
 
@@ -126,7 +135,8 @@ if printf '%s' "$LAST_BODY" | grep -q 'SmokeSecret123'; then
   echo "FAIL credential save response exposed plaintext secret" >&2
   exit 1
 fi
-request POST "/api/assets/$SMOKE_ASSET_ID/credential/reveal" "{\"password\":\"$ADMIN_PASSWORD\"}" "$ADMIN_TOKEN" 200
+request PUT /api/security/credential-verification "{\"password\":\"$CREDENTIAL_VERIFY_PASSWORD\"}" "$ADMIN_TOKEN" 200
+request POST "/api/assets/$SMOKE_ASSET_ID/credential/reveal" "{\"password\":\"$CREDENTIAL_VERIFY_PASSWORD\"}" "$ADMIN_TOKEN" 200
 if ! printf '%s' "$LAST_BODY" | grep -q 'SmokeSecret123'; then
   echo "FAIL credential reveal did not return secret after password verification" >&2
   exit 1
@@ -139,6 +149,7 @@ if ! printf '%s' "$LAST_BODY" | grep -q '"type":"任务"'; then
   exit 1
 fi
 request POST /api/tasks "{\"title\":\"Bad task\",\"status\":\"挂起\"}" "$ADMIN_TOKEN" 400
+request POST /api/tasks "{\"title\":\"Skipped task flow\",\"status\":\"已完成\"}" "$ADMIN_TOKEN" 400
 request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 200
 request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"已关闭\"}" "$ADMIN_TOKEN" 200
 request PATCH "/api/tasks/$SMOKE_TASK_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 409
@@ -150,6 +161,7 @@ if ! printf '%s' "$LAST_BODY" | grep -q '"level":"P3"'; then
   exit 1
 fi
 request POST /api/incidents "{\"title\":\"Bad incident\",\"level\":\"P0\"}" "$ADMIN_TOKEN" 400
+request POST /api/incidents "{\"title\":\"Skipped incident flow\",\"level\":\"P3\",\"status\":\"已关闭\"}" "$ADMIN_TOKEN" 400
 request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 200
 request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"已关闭\"}" "$ADMIN_TOKEN" 200
 request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"处理中\"}" "$ADMIN_TOKEN" 409
@@ -157,6 +169,12 @@ request PATCH "/api/incidents/$SMOKE_INCIDENT_ID" "{\"status\":\"处理中\"}" "
 request POST /api/oncall "{\"ruleType\":\"monthly\",\"primary\":\"Smoke Ops\"}" "$ADMIN_TOKEN" 400
 request POST /api/oncall "{\"ruleType\":\"daily\",\"date\":\"2026-06-08\",\"primary\":\"Smoke Ops\",\"backup\":\"Smoke Backup\"}" "$ADMIN_TOKEN" 201
 SMOKE_ONCALL_ID=$(json_id id)
+
+request GET "/api/audit-events?limit=100" "" "$ADMIN_TOKEN" 200
+if ! printf '%s' "$LAST_BODY" | grep -q '"action":"credential.reveal"'; then
+  echo "FAIL audit events did not include credential reveal" >&2
+  exit 1
+fi
 
 echo "PASS OpsCore API smoke flow completed."
 EOS

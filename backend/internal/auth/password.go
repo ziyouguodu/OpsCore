@@ -12,10 +12,14 @@ import (
 )
 
 const passwordIterations = 120000
+const maxPasswordBytes = 256
 
 func HashPassword(password string) (string, error) {
 	if len(password) < 8 {
 		return "", errors.New("password must be at least 8 characters")
+	}
+	if len(password) > maxPasswordBytes {
+		return "", errors.New("password must not exceed 256 bytes")
 	}
 
 	salt := make([]byte, 16)
@@ -32,6 +36,9 @@ func HashPassword(password string) (string, error) {
 }
 
 func VerifyPassword(encoded, password string) bool {
+	if len(password) > maxPasswordBytes {
+		return false
+	}
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != "pbkdf2_sha256" {
 		return false

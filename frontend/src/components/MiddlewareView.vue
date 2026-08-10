@@ -68,52 +68,52 @@ function closeEditorOnFocusOut(event) {
       <section>
         <div class="query-card">
           <div class="query-main">
-            <input v-model="filters.keyword" placeholder="搜索实例名称、类型、访问地址、业务、负责人" @input="resetPage" />
-            <select v-model="filters.kind" @change="resetPage">
+            <input v-model="filters.keyword" aria-label="实例关键词" placeholder="搜索实例名称、类型、访问地址、业务、负责人" @input="resetPage" />
+            <select v-model="filters.kind" aria-label="实例类型" @change="resetPage">
               <option value="">全部类型</option>
               <option v-for="kind in middlewareKinds" :key="kind">{{ kind }}</option>
             </select>
-            <select v-model="filters.environment" @change="resetPage"><option value="">全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
+            <select v-model="filters.environment" aria-label="实例环境" @change="resetPage"><option value="">全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
             <button class="primary" @click="resetPage">查询</button>
             <button @click="$emit('reset-filters')">重置</button>
             <button class="link" @click="filters.advanced = !filters.advanced">{{ filters.advanced ? '收起高级搜索' : '高级搜索' }}</button>
           </div>
           <div v-if="filters.advanced" class="query-extra">
-            <select v-model="filters.business" @change="resetPage">
+            <select v-model="filters.business" aria-label="所属业务" @change="resetPage">
               <option value="">全部所属业务</option>
               <option v-for="item in businesses" :key="item">{{ item }}</option>
             </select>
-            <select v-model="filters.networkZone" @change="resetPage">
+            <select v-model="filters.networkZone" aria-label="网络区域" @change="resetPage">
               <option value="">全部网络区域</option>
               <option v-for="item in networkZones" :key="item">{{ item }}</option>
             </select>
-            <select v-model="filters.status" @change="resetPage"><option value="">全部状态</option><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <select v-model="filters.status" aria-label="实例状态" @change="resetPage"><option value="">全部状态</option><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
           </div>
         </div>
 
         <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
           <h3>{{ form.id ? '编辑实例' : '新增实例' }}</h3>
           <div class="form-grid">
-            <input v-model="form.name" placeholder="实例名称" />
-            <select v-model="form.kind"><option v-for="kind in middlewareKinds" :key="kind">{{ kind }}</option></select>
-            <input v-model="form.version" placeholder="版本" />
-            <select v-model="form.environment"><option>生产</option><option>仿真</option><option>研发</option></select>
-            <input v-model="form.networkZone" placeholder="网络区域" />
-            <input v-model="form.endpoint" placeholder="访问地址 / 端口" />
-            <input v-model="form.business" placeholder="所属业务" />
-            <input v-model="form.owner" placeholder="负责人" />
-            <input v-model="form.assetId" placeholder="关联资产 ID（非必填）" />
-            <select v-model="form.status"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <input v-model="form.name" aria-label="实例名称" placeholder="实例名称" />
+            <select v-model="form.kind" aria-label="实例类型"><option v-for="kind in middlewareKinds" :key="kind">{{ kind }}</option></select>
+            <input v-model="form.version" aria-label="版本" placeholder="版本" />
+            <select v-model="form.environment" aria-label="环境"><option>生产</option><option>仿真</option><option>研发</option></select>
+            <input v-model="form.networkZone" aria-label="网络区域" placeholder="网络区域" />
+            <input v-model="form.endpoint" aria-label="访问地址或端口" placeholder="访问地址 / 端口" />
+            <input v-model="form.business" aria-label="所属业务" placeholder="所属业务" />
+            <input v-model="form.owner" aria-label="负责人" placeholder="负责人" />
+            <input v-model="form.assetId" aria-label="关联资产 ID" placeholder="关联资产 ID（非必填）" />
+            <select v-model="form.status" aria-label="实例状态"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
             <section v-if="canManageCredentials" class="credential-inline form-wide">
               <div>
                 <strong>实例登录信息</strong>
                 <span>保存后加密存储，列表不展示；查看密码需统一二次校验。</span>
               </div>
               <div class="form-grid credential-form-inline">
-                <input v-model="formCredential.loginUrl" placeholder="管理地址 / 连接入口（可选）" />
-                <input v-model="formCredential.username" placeholder="登录用户名" />
-                <input v-model="formCredential.secret" placeholder="登录密码 / 密钥" type="password" />
-                <input v-model="formCredential.notes" placeholder="备注" />
+                <input v-model="formCredential.loginUrl" aria-label="管理地址或连接入口" placeholder="管理地址 / 连接入口（可选）" />
+                <input v-model="formCredential.username" aria-label="登录用户名" placeholder="登录用户名" />
+                <input v-model="formCredential.secret" aria-label="登录密码或密钥" placeholder="登录密码 / 密钥" type="password" />
+                <input v-model="formCredential.notes" aria-label="登录信息备注" placeholder="备注" />
               </div>
             </section>
             <button class="primary" :disabled="!canWrite" @click="$emit('save')">{{ form.id ? '保存修改' : '保存实例' }}</button>
@@ -125,7 +125,7 @@ function closeEditorOnFocusOut(event) {
           <table>
             <thead><tr><th>实例名称</th><th>类型</th><th>环境</th><th>网络区域</th><th>访问地址</th><th>所属业务</th><th>关联资产</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="item in pagedItems" :key="item.id" :class="{ selected: selectedItem?.id === item.id }" class="clickable-row" tabindex="0" @click="$emit('choose', item)" @keyup.enter="$emit('choose', item)">
+              <tr v-for="item in pagedItems" :key="item.id" :class="{ selected: selectedItem?.id === item.id }" class="clickable-row" tabindex="0" @click="$emit('choose', item)" @keyup.enter="$emit('choose', item)" @keyup.space.prevent="$emit('choose', item)">
                 <td>{{ item.name }}</td><td>{{ item.kind }}</td><td>{{ item.environment }}</td><td>{{ item.networkZone || '-' }}</td><td>{{ item.endpoint }}</td><td>{{ item.business }}</td><td>{{ associatedAssetName(item) }}</td><td>{{ item.status }}</td>
                 <td class="row-actions"><button class="link" @click.stop="$emit('choose', item)">详情</button><button class="link" :disabled="!canWrite || isSample(item)" @click.stop="$emit('edit', item)">编辑</button><button class="link danger-text" :disabled="!canWrite || isSample(item)" @click.stop="$emit('delete', item)">删除</button></td>
               </tr>
@@ -173,14 +173,14 @@ function closeEditorOnFocusOut(event) {
               <span v-else class="pill">未保存密钥</span>
             </div>
             <div class="form-grid credential-form">
-              <input v-model="credential.loginUrl" placeholder="管理地址 / 连接入口" />
-              <input v-model="credential.username" placeholder="账号" />
-              <input v-model="credential.secret" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
-              <input v-model="credential.notes" placeholder="备注" />
+              <input v-model="credential.loginUrl" aria-label="管理地址或连接入口" placeholder="管理地址 / 连接入口" />
+              <input v-model="credential.username" aria-label="登录账号" placeholder="账号" />
+              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
+              <input v-model="credential.notes" aria-label="登录信息备注" placeholder="备注" />
               <button class="primary" @click="$emit('save-credential')">保存账号密码</button>
             </div>
             <div class="credential-reveal">
-              <input v-model="credentialReveal.password" placeholder="输入统一二次校验密码查看密码/密钥" type="password" @keyup.enter="$emit('reveal-credential')" />
+              <input v-model="credentialReveal.password" aria-label="统一二次校验密码" placeholder="输入统一二次校验密码查看密码/密钥" type="password" @keyup.enter="$emit('reveal-credential')" />
               <button @click="$emit('reveal-credential')">二次校验查看</button>
               <span v-if="credentialReveal.revealed" class="pill success">已校验</span>
             </div>

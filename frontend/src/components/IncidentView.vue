@@ -1,5 +1,7 @@
 <script setup>
 import PaginationBar from './PaginationBar.vue'
+import { formatDateTime } from '../date-time'
+import { incidentStatusOptions } from '../workflow-status'
 
 defineProps({
   activeIncidentCount: { type: Number, default: 0 },
@@ -12,7 +14,8 @@ defineProps({
   pageCount: { type: Number, required: true },
   pageSize: { type: Number, required: true },
   pagedIncidents: { type: Array, default: () => [] },
-  total: { type: Number, default: 0 }
+  total: { type: Number, default: 0 },
+  users: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits([
@@ -60,14 +63,17 @@ function severityLabel(level) {
     <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
       <h3>{{ form.id ? '编辑事件' : '新建事件' }}</h3>
       <div class="form-grid">
-        <input v-model="form.title" placeholder="事件标题" />
-        <select v-model="form.level"><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
-        <input v-model="form.owner" placeholder="负责人" />
-        <input v-model="form.business" placeholder="所属业务" />
-        <select v-model="form.status"><option>新建</option><option>处理中</option><option>已恢复</option><option>已关闭</option></select>
-        <input v-model="form.startedAt" placeholder="开始时间" />
-        <input v-model="form.recoveredAt" placeholder="恢复时间" />
-        <textarea v-model="form.summary" class="form-wide" rows="4" placeholder="事件摘要：描述影响范围、初步原因、当前处置动作和下一步计划"></textarea>
+        <input v-model="form.title" aria-label="事件标题" placeholder="事件标题" />
+        <select v-model="form.level" aria-label="事件等级"><option>P1</option><option>P2</option><option>P3</option><option>P4</option></select>
+        <select v-model="form.ownerUserId" aria-label="事件负责人">
+          <option value="">未指定负责人</option>
+          <option v-for="user in users" :key="user.id" :value="user.id">{{ user.displayName }}（{{ user.username }}）</option>
+        </select>
+        <input v-model="form.business" aria-label="事件所属业务" placeholder="所属业务" />
+        <select v-model="form.status" aria-label="事件状态" disabled><option>{{ form.status }}</option></select>
+        <input v-model="form.startedAt" type="datetime-local" aria-label="事件开始时间" />
+        <input v-model="form.recoveredAt" type="datetime-local" aria-label="事件恢复时间" />
+        <textarea v-model="form.summary" class="form-wide" rows="4" aria-label="事件摘要" placeholder="事件摘要：描述影响范围、初步原因、当前处置动作和下一步计划"></textarea>
         <button class="primary" @click="$emit('save')">{{ form.id ? '保存修改' : '创建事件' }}</button>
         <button @click="$emit('close-form')">取消</button>
       </div>
@@ -79,7 +85,7 @@ function severityLabel(level) {
           <table>
             <thead><tr><th>事件</th><th>等级</th><th>状态</th><th>负责人</th><th>业务</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="incident in pagedIncidents" :key="incident.id" :class="{ selected: currentIncident?.id === incident.id }" class="clickable-row" tabindex="0" @click="$emit('choose', incident)" @keyup.enter="$emit('choose', incident)">
+              <tr v-for="incident in pagedIncidents" :key="incident.id" :class="{ selected: currentIncident?.id === incident.id }" class="clickable-row" tabindex="0" @click="$emit('choose', incident)" @keyup.enter="$emit('choose', incident)" @keyup.space.prevent="$emit('choose', incident)">
                 <td>{{ incident.title }}</td>
                 <td><span class="pill danger">{{ incident.level }}</span></td>
                 <td><span class="pill">{{ incident.status }}</span></td>
@@ -110,12 +116,12 @@ function severityLabel(level) {
           <dt>当前状态</dt><dd>{{ currentIncident.status }}</dd>
           <dt>负责人</dt><dd>{{ currentIncident.owner || '-' }}</dd>
           <dt>所属业务</dt><dd>{{ currentIncident.business || '-' }}</dd>
-          <dt>开始时间</dt><dd>{{ currentIncident.startedAt || '-' }}</dd>
+          <dt>开始时间</dt><dd>{{ formatDateTime(currentIncident.startedAt) }}</dd>
           <dt>摘要</dt><dd>{{ currentIncident.summary || '暂无摘要' }}</dd>
         </dl>
         <label>事件状态
-          <select :value="currentIncident.status" :disabled="isSample(currentIncident)" @change="$emit('update-status', currentIncident, $event.target.value)">
-            <option>新建</option><option>处理中</option><option>已恢复</option><option>已关闭</option>
+          <select :value="currentIncident.status" aria-label="事件状态" :disabled="isSample(currentIncident) || incidentStatusOptions(currentIncident.status).length === 1" @change="$emit('update-status', currentIncident, $event.target.value)">
+            <option v-for="status in incidentStatusOptions(currentIncident.status)" :key="status">{{ status }}</option>
           </select>
         </label>
         <div class="detail-actions">

@@ -1,18 +1,34 @@
 <script setup>
+import { nextTick, ref, watch } from 'vue'
 import SvgIcon from './SvgIcon.vue'
 
-defineProps({
+const props = defineProps({
   open: { type: Boolean, default: false },
   expanded: { type: Boolean, default: false },
+  busy: { type: Boolean, default: false },
   messages: { type: Array, default: () => [] },
   question: { type: String, default: '' }
 })
 
 const emit = defineEmits(['hide', 'toggle-size', 'send', 'update:question'])
+const questionInput = ref(null)
+let opener = null
+
+watch(() => props.open, async (open) => {
+  if (!open) {
+    await nextTick()
+    opener?.focus?.()
+    opener = null
+    return
+  }
+  opener = document.activeElement
+  await nextTick()
+  questionInput.value?.focus()
+})
 </script>
 
 <template>
-  <section v-if="open" class="copilot" :class="{ expanded }">
+  <section v-if="open" class="copilot" :class="{ expanded }" role="dialog" aria-label="OpsCore AI Copilot" @keydown.esc="emit('hide')">
     <header>
       <div class="copilot-title">
         <span class="copilot-logo"><img class="copilot-icon-img" src="/copilot-root-cause-icon.png" alt="" /></span>
@@ -22,26 +38,28 @@ const emit = defineEmits(['hide', 'toggle-size', 'send', 'update:question'])
         </div>
       </div>
       <div class="copilot-actions">
-        <button :title="expanded ? '还原窗口' : '放大窗口'" @click="emit('toggle-size')">
+        <button :title="expanded ? '还原窗口' : '放大窗口'" :aria-label="expanded ? '还原 Copilot 窗口' : '放大 Copilot 窗口'" @click="emit('toggle-size')">
           <SvgIcon :name="expanded ? 'restore' : 'maximize'" />
         </button>
-        <button title="隐藏 Copilot" @click="emit('hide')">
+        <button title="隐藏 Copilot" aria-label="隐藏 Copilot" @click="emit('hide')">
           <SvgIcon name="minimize" />
         </button>
       </div>
     </header>
-    <div class="copilot-body">
-      <p>我可以帮你查询 CMDB 资产、定位活跃事件、汇总今日值班和待处理任务。</p>
-      <div v-for="(message, index) in messages" :key="index" :class="['chat', message.role]">{{ message.text }}</div>
+    <div class="copilot-body" aria-live="polite">
+      <div v-for="(message, index) in messages" :key="index" :class="['chat', message.role, { pending: message.pending }]">{{ message.text }}</div>
     </div>
     <div class="copilot-input">
       <input
+        ref="questionInput"
         :value="question"
+        :disabled="busy"
+        aria-label="向 AI Copilot 提问"
         placeholder="输入问题，例如：查询支付服务关联资产"
         @input="emit('update:question', $event.target.value)"
         @keyup.enter="emit('send')"
       />
-      <button class="primary" @click="emit('send')">发送</button>
+      <button class="primary" :disabled="busy || !question.trim()" @click="emit('send')">{{ busy ? '分析中' : '发送' }}</button>
     </div>
   </section>
 </template>

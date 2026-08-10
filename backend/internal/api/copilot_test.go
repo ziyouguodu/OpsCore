@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -133,11 +134,39 @@ func TestCopilotConfigRejectsHostedPrivateEndpoint(t *testing.T) {
 	}
 }
 
+func TestCopilotConfigRejectsInvalidGenerationBounds(t *testing.T) {
+	for _, item := range []models.CopilotConfig{
+		{Provider: "openai", Endpoint: "https://api.openai.com/v1", Model: "gpt-4.1", Temperature: "2.5"},
+		{Provider: "openai", Endpoint: "https://api.openai.com/v1", Model: "gpt-4.1", MaxTokens: "5000"},
+	} {
+		if err := validateCopilotConfig(item); err == nil {
+			t.Fatalf("expected invalid generation bounds to be rejected: %+v", item)
+		}
+	}
+}
+
+func TestCopilotEndpointRejectsEmbeddedCredentialsAndQuery(t *testing.T) {
+	for _, endpoint := range []string{"https://user:secret@llm.example.com/v1", "https://llm.example.com/v1?key=secret"} {
+		if _, err := normalizeHTTPBase(endpoint); err == nil {
+			t.Fatalf("expected unsafe endpoint to be rejected: %s", endpoint)
+		}
+	}
+}
+
 func TestCopilotRedirectPolicyRejectsHostedRedirectToLoopback(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/internal", nil)
 	err := copilotRedirectPolicy("compatible")(req, nil)
 	if err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("expected hosted redirect to loopback to be rejected, got %v", err)
+	}
+}
+
+func TestCopilotRedirectPolicyRejectsCrossHostRedirect(t *testing.T) {
+	original := httptest.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", nil)
+	redirect := httptest.NewRequest(http.MethodGet, "https://capture.example.net/redirect", nil)
+	err := copilotRedirectPolicy("compatible")(redirect, []*http.Request{original})
+	if err == nil || !strings.Contains(err.Error(), "cross-host") {
+		t.Fatalf("expected cross-host model redirect to be rejected, got %v", err)
 	}
 }
 
@@ -213,9 +242,162 @@ func TestCopilotConfigCanBeSavedAndReadWithoutLeakingAPIKey(t *testing.T) {
 	}
 }
 
+func TestCopilotModelProfilesListIsMaskedAndRestricted(t *testing.T) {
+	store := &mutationStore{
+		userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		copilotProfiles: []models.CopilotModelConfig{{
+			ID: 1, Name: "生产分析模型", Provider: "openai", Model: "gpt-4.1",
+			APIKey: "must-not-leak", HasAPIKey: true, IsActive: true,
+		}},
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	adminToken, _ := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/copilot/configs", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected profile list status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "must-not-leak") || !strings.Contains(rec.Body.String(), `"hasApiKey":true`) {
+		t.Fatalf("profile list must expose only managed-key state: %s", rec.Body.String())
+	}
+
+	store.userProfile = models.User{ID: 7, Username: "ops.li", Roles: []string{auth.RoleOpsEngineer}}
+	opsToken, _ := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
+	denied := httptest.NewRequest(http.MethodGet, "/api/copilot/configs", nil)
+	denied.Header.Set("Authorization", "Bearer "+opsToken)
+	deniedRec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(deniedRec, denied)
+	if deniedRec.Code != http.StatusForbidden {
+		t.Fatalf("expected ops engineer to be denied, got %d", deniedRec.Code)
+	}
+}
+
+func TestCopilotModelProfileLifecycle(t *testing.T) {
+	store := &mutationStore{userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}}}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, _ := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		server.Routes().ServeHTTP(rec, req)
+		return rec
+	}
+
+	local := request(http.MethodPost, "/api/copilot/configs", `{"name":"内网应急模型","provider":"local","endpoint":"https://must-clear.example/v1","model":"must-clear","localEndpoint":"http://host.docker.internal:11434","localModel":"qwen2.5:7b","temperature":"0.2","maxTokens":"2048"}`)
+	if local.Code != http.StatusCreated || !strings.Contains(local.Body.String(), `"isActive":true`) {
+		t.Fatalf("expected first local profile to become active, got %d: %s", local.Code, local.Body.String())
+	}
+	if strings.Contains(local.Body.String(), "must-clear") {
+		t.Fatalf("local profile response retained hosted fields: %s", local.Body.String())
+	}
+
+	hosted := request(http.MethodPost, "/api/copilot/configs", `{"name":"生产分析模型","provider":"openai","endpoint":"https://api.openai.com/v1","model":"gpt-4.1","apiKey":"sk-profile-secret","localEndpoint":"http://must-clear","localModel":"must-clear","temperature":"0.2","maxTokens":"2048"}`)
+	if hosted.Code != http.StatusCreated || !strings.Contains(hosted.Body.String(), `"hasApiKey":true`) {
+		t.Fatalf("expected hosted profile to be saved with managed key, got %d: %s", hosted.Code, hosted.Body.String())
+	}
+	if strings.Contains(hosted.Body.String(), "sk-profile-secret") || strings.Contains(hosted.Body.String(), "http://must-clear") {
+		t.Fatalf("hosted profile response leaked a key or local fields: %s", hosted.Body.String())
+	}
+
+	activated := request(http.MethodPost, "/api/copilot/configs/2/activate", "")
+	if activated.Code != http.StatusOK || !strings.Contains(activated.Body.String(), `"isActive":true`) {
+		t.Fatalf("expected hosted profile activation, got %d: %s", activated.Code, activated.Body.String())
+	}
+	if store.copilotProfiles[0].IsActive || !store.copilotProfiles[1].IsActive {
+		t.Fatalf("expected exactly the selected profile to be active: %+v", store.copilotProfiles)
+	}
+
+	activeDelete := request(http.MethodDelete, "/api/copilot/configs/2", "")
+	if activeDelete.Code != http.StatusConflict {
+		t.Fatalf("expected active profile deletion conflict, got %d: %s", activeDelete.Code, activeDelete.Body.String())
+	}
+	inactiveDelete := request(http.MethodDelete, "/api/copilot/configs/1", "")
+	if inactiveDelete.Code != http.StatusNoContent {
+		t.Fatalf("expected inactive profile deletion, got %d: %s", inactiveDelete.Code, inactiveDelete.Body.String())
+	}
+}
+
 func TestCopilotSanitizesGoogleAPIKeyFromProviderDetails(t *testing.T) {
 	detail := sanitizeProviderResponse("request failed for key gemini-secret-key/with+chars and encoded gemini-secret-key%2Fwith%2Bchars", "gemini-secret-key/with+chars")
 	if strings.Contains(detail, "gemini-secret-key") || strings.Contains(detail, "gemini-secret-key%2Fwith%2Bchars") {
 		t.Fatalf("provider detail must not leak api key, got %q", detail)
+	}
+}
+
+func TestCopilotChatUsesConfiguredLocalModelForOpsEngineer(t *testing.T) {
+	var seenPath string
+	var seenBody string
+	modelService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		payload, _ := io.ReadAll(r.Body)
+		seenBody = string(payload)
+		writeJSON(w, http.StatusOK, map[string]any{"message": map[string]string{"content": "建议先确认支付服务影响范围。"}})
+	}))
+	defer modelService.Close()
+
+	store := newOpsMutationStore()
+	store.copilotConfig = models.CopilotConfig{Provider: "local", LocalEndpoint: modelService.URL, LocalModel: "ops-test"}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/copilot/chat", strings.NewReader(`{"question":"支付服务发生了什么？"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected chat status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if seenPath != "/api/chat" || !strings.Contains(seenBody, "支付服务发生了什么") {
+		t.Fatalf("expected local chat request with question, path=%q body=%s", seenPath, seenBody)
+	}
+	if strings.Contains(seenBody, "password") || strings.Contains(seenBody, "secret") {
+		t.Fatalf("chat context must not include credential fields: %s", seenBody)
+	}
+	if !strings.Contains(rec.Body.String(), "建议先确认支付服务影响范围") {
+		t.Fatalf("expected model answer, got %s", rec.Body.String())
+	}
+}
+
+func TestCopilotAnswerParsers(t *testing.T) {
+	cases := []struct {
+		provider string
+		payload  string
+	}{
+		{"compatible", `{"choices":[{"message":{"content":"OpenAI answer"}}]}`},
+		{"anthropic", `{"content":[{"text":"Claude answer"}]}`},
+		{"google", `{"candidates":[{"content":{"parts":[{"text":"Gemini answer"}]}}]}`},
+		{"local", `{"message":{"content":"Local answer"}}`},
+	}
+	for _, test := range cases {
+		t.Run(test.provider, func(t *testing.T) {
+			answer, err := parseCopilotAnswer(test.provider, []byte(test.payload))
+			if err != nil || answer == "" {
+				t.Fatalf("expected parsed answer, got %q, %v", answer, err)
+			}
+		})
+	}
+}
+
+func TestCopilotChatRejectsEmptyQuestion(t *testing.T) {
+	store := newOpsMutationStore()
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, _ := signer.Issue(7, "ops.li", []string{auth.RoleOpsEngineer})
+	req := httptest.NewRequest(http.MethodPost, "/api/copilot/chat", strings.NewReader(`{"question":"  "}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected empty question to be rejected, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

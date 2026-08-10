@@ -12,13 +12,16 @@ import (
 	"opscore/backend/internal/auth"
 	"opscore/backend/internal/config"
 	"opscore/backend/internal/models"
+	"opscore/backend/internal/store"
 )
 
 type mutationStore struct {
+	pingErr                    error
 	assetDeleted               int64
 	assetDeleteActor           int64
 	assetDeleteSuper           bool
 	assetCreator               int64
+	assetListQuery             models.ListQuery
 	middlewareDeleted          int64
 	oncallDeleted              int64
 	taskDeleted                int64
@@ -48,7 +51,12 @@ type mutationStore struct {
 	credentialVerifyConfigured string
 	credentialVerifyChecks     []string
 	copilotConfig              models.CopilotConfig
+	copilotProfiles            []models.CopilotModelConfig
+	copilotProfileKeys         map[int64]string
+	auditEvents                []models.AuditEvent
 }
+
+func (s *mutationStore) Ping(context.Context) error { return s.pingErr }
 
 func newOpsMutationStore() *mutationStore {
 	return &mutationStore{userProfile: models.User{
@@ -76,8 +84,21 @@ func (s *mutationStore) ChangePassword(_ context.Context, userID int64, currentP
 func (s *mutationStore) Dashboard(context.Context) (models.Dashboard, error) {
 	return models.Dashboard{}, nil
 }
+func (s *mutationStore) RecordAudit(_ context.Context, event models.AuditEvent) error {
+	s.auditEvents = append(s.auditEvents, event)
+	return nil
+}
+func (s *mutationStore) ListAuditEvents(_ context.Context, limit int) ([]models.AuditEvent, error) {
+	if limit < len(s.auditEvents) {
+		return s.auditEvents[:limit], nil
+	}
+	return s.auditEvents, nil
+}
 func (s *mutationStore) ListUsers(context.Context) ([]models.UserListItem, error) {
 	return []models.UserListItem{}, nil
+}
+func (s *mutationStore) ListUserDirectory(context.Context) ([]models.UserDirectoryItem, error) {
+	return []models.UserDirectoryItem{{ID: 7, Username: "ops.li", DisplayName: "李明"}}, nil
 }
 func (s *mutationStore) CreateUser(_ context.Context, item models.UserMutation) (models.UserListItem, error) {
 	s.userCreated = models.UserListItem{
@@ -153,8 +174,34 @@ func TestDeletingProtectedAdminReturnsConflict(t *testing.T) {
 		t.Fatalf("expected delete conflict status 409, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDeletingUserAssignedToDutyReturnsConflict(t *testing.T) {
+	store := &mutationStore{
+		userProfile:   models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
+		userDeleteErr: errUserAssignedToDuty,
+	}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/users/2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected duty assignment conflict status 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
 func (s *mutationStore) ListAssets(context.Context) ([]models.Asset, error) {
 	return []models.Asset{}, nil
+}
+func (s *mutationStore) ListAssetsPage(_ context.Context, query models.ListQuery) (models.PageResult[models.Asset], error) {
+	s.assetListQuery = query
+	return models.PageResult[models.Asset]{Items: []models.Asset{{ID: 1, AssetNo: "ASSET-1"}}, Total: 21, Page: query.Page, PageSize: query.PageSize, PageCount: 2}, nil
 }
 func (s *mutationStore) UpsertAsset(_ context.Context, item models.Asset) (models.Asset, error) {
 	s.assetUpdated = item
@@ -476,6 +523,20 @@ func (s *mutationStore) VerifyCredentialPassword(_ context.Context, password str
 	s.credentialVerifyChecks = append(s.credentialVerifyChecks, password)
 	return s.credentialVerifyPassword != "" && s.credentialVerifyPassword == password, nil
 }
+
+func TestCredentialRevealRequiresConfiguredUnifiedPassword(t *testing.T) {
+	store := &mutationStore{}
+	server := &Server{store: store}
+
+	ok, err := server.verifyCredentialRevealPassword(context.Background(), auth.Claims{Username: "admin"}, "ChangeMe123!")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("login password must not reveal credentials before a unified verification password is configured")
+	}
+}
 func (s *mutationStore) UpsertAssetCredential(_ context.Context, item models.AssetCredential) (models.AssetCredential, error) {
 	return item, nil
 }
@@ -503,8 +564,88 @@ func (s *mutationStore) UpsertCopilotConfig(_ context.Context, item models.Copil
 func (s *mutationStore) GetCopilotAPIKey(context.Context) (string, error) {
 	return s.copilotConfig.APIKey, nil
 }
+func (s *mutationStore) ListCopilotModelConfigs(context.Context) ([]models.CopilotModelConfig, error) {
+	return append([]models.CopilotModelConfig(nil), s.copilotProfiles...), nil
+}
+func (s *mutationStore) GetCopilotModelConfig(_ context.Context, id int64) (models.CopilotModelConfig, error) {
+	for _, item := range s.copilotProfiles {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return models.CopilotModelConfig{}, store.ErrCopilotProfileNotFound
+}
+func (s *mutationStore) GetActiveCopilotModelConfig(ctx context.Context) (models.CopilotModelConfig, error) {
+	for _, item := range s.copilotProfiles {
+		if item.IsActive {
+			return item, nil
+		}
+	}
+	return models.CopilotModelConfig{}, store.ErrCopilotProfileNotFound
+}
+func (s *mutationStore) CreateCopilotModelConfig(_ context.Context, item models.CopilotModelConfig) (models.CopilotModelConfig, error) {
+	item.ID = int64(len(s.copilotProfiles) + 1)
+	item.IsActive = len(s.copilotProfiles) == 0
+	item.HasAPIKey = item.APIKey != ""
+	if item.APIKey != "" {
+		if s.copilotProfileKeys == nil {
+			s.copilotProfileKeys = map[int64]string{}
+		}
+		s.copilotProfileKeys[item.ID] = item.APIKey
+	}
+	item.APIKey = ""
+	s.copilotProfiles = append(s.copilotProfiles, item)
+	return item, nil
+}
+func (s *mutationStore) UpdateCopilotModelConfig(_ context.Context, id int64, item models.CopilotModelConfig) (models.CopilotModelConfig, error) {
+	for index := range s.copilotProfiles {
+		if s.copilotProfiles[index].ID == id {
+			item.ID = id
+			item.IsActive = s.copilotProfiles[index].IsActive
+			item.HasAPIKey = item.APIKey != "" || s.copilotProfiles[index].HasAPIKey
+			if item.APIKey != "" {
+				if s.copilotProfileKeys == nil {
+					s.copilotProfileKeys = map[int64]string{}
+				}
+				s.copilotProfileKeys[id] = item.APIKey
+			}
+			item.APIKey = ""
+			s.copilotProfiles[index] = item
+			return item, nil
+		}
+	}
+	return models.CopilotModelConfig{}, store.ErrCopilotProfileNotFound
+}
+func (s *mutationStore) DeleteCopilotModelConfig(_ context.Context, id int64) error {
+	for index, item := range s.copilotProfiles {
+		if item.ID != id {
+			continue
+		}
+		if item.IsActive {
+			return store.ErrCopilotActiveProfileDelete
+		}
+		s.copilotProfiles = append(s.copilotProfiles[:index], s.copilotProfiles[index+1:]...)
+		return nil
+	}
+	return store.ErrCopilotProfileNotFound
+}
+func (s *mutationStore) ActivateCopilotModelConfig(_ context.Context, id int64) (models.CopilotModelConfig, error) {
+	for index := range s.copilotProfiles {
+		s.copilotProfiles[index].IsActive = s.copilotProfiles[index].ID == id
+		if s.copilotProfiles[index].IsActive {
+			return s.copilotProfiles[index], nil
+		}
+	}
+	return models.CopilotModelConfig{}, store.ErrCopilotProfileNotFound
+}
+func (s *mutationStore) GetCopilotModelAPIKey(_ context.Context, id int64) (string, error) {
+	return s.copilotProfileKeys[id], nil
+}
 func (s *mutationStore) ListMiddleware(context.Context) ([]models.MiddlewareInstance, error) {
 	return []models.MiddlewareInstance{}, nil
+}
+func (s *mutationStore) ListMiddlewarePage(context.Context, models.ListQuery) (models.PageResult[models.MiddlewareInstance], error) {
+	return models.PageResult[models.MiddlewareInstance]{Items: []models.MiddlewareInstance{}, Page: 1, PageSize: 20, PageCount: 1}, nil
 }
 func (s *mutationStore) CreateMiddleware(_ context.Context, item models.MiddlewareInstance) (models.MiddlewareInstance, error) {
 	return item, nil
@@ -546,6 +687,9 @@ func (s *mutationStore) SaveDutyCenter(_ context.Context, mutation models.DutyCe
 func (s *mutationStore) ListTasks(context.Context) ([]models.Task, error) {
 	return []models.Task{}, nil
 }
+func (s *mutationStore) ListTasksPage(context.Context, models.ListQuery) (models.PageResult[models.Task], error) {
+	return models.PageResult[models.Task]{Items: []models.Task{}, Page: 1, PageSize: 20, PageCount: 1}, nil
+}
 func (s *mutationStore) CreateTask(_ context.Context, item models.Task) (models.Task, error) {
 	s.taskCreated = item
 	return item, nil
@@ -567,6 +711,9 @@ func (s *mutationStore) UpdateTaskStatus(context.Context, int64, string) error {
 }
 func (s *mutationStore) ListIncidents(context.Context) ([]models.Incident, error) {
 	return []models.Incident{}, nil
+}
+func (s *mutationStore) ListIncidentsPage(context.Context, models.ListQuery) (models.PageResult[models.Incident], error) {
+	return models.PageResult[models.Incident]{Items: []models.Incident{}, Page: 1, PageSize: 20, PageCount: 1}, nil
 }
 func (s *mutationStore) CreateIncident(_ context.Context, item models.Incident) (models.Incident, error) {
 	s.incidentCreated = item
@@ -950,7 +1097,7 @@ func TestTaskMutationRoutesUpdateAndDeleteByID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/tasks/11", strings.NewReader(`{"title":"巡检确认","type":"任务","assignee":"SRE","status":"处理中","dueAt":"今天 18:00","description":"确认数据库巡检结果"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/tasks/11", strings.NewReader(`{"title":"巡检确认","type":"任务","assignee":"SRE","status":"处理中","dueAt":"2026-06-08T18:00","description":"确认数据库巡检结果"}`))
 	putReq.Header.Set("Authorization", "Bearer "+token)
 	putRec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(putRec, putReq)
@@ -1003,6 +1150,25 @@ func TestTaskCreateDefaultsTypeAndRejectsInvalidStatus(t *testing.T) {
 	server.Routes().ServeHTTP(invalidRec, invalidReq)
 	if invalidRec.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid task status 400, got %d: %s", invalidRec.Code, invalidRec.Body.String())
+	}
+}
+
+func TestTaskCreateRejectsNonInitialStatus(t *testing.T) {
+	store := &mutationStore{userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}}}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(`{"title":"跳过处理流程","status":"已完成"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected non-initial task status to be rejected, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1090,6 +1256,25 @@ func TestIncidentCreateDefaultsAndRejectsInvalidLevel(t *testing.T) {
 	server.Routes().ServeHTTP(invalidRec, invalidReq)
 	if invalidRec.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid incident level 400, got %d: %s", invalidRec.Code, invalidRec.Body.String())
+	}
+}
+
+func TestIncidentCreateRejectsNonInitialStatus(t *testing.T) {
+	store := &mutationStore{userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}}}
+	signer := auth.NewSigner("secret", time.Hour)
+	server := &Server{store: store, signer: signer, cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
+	token, err := signer.Issue(1, "admin", []string{auth.RoleSuperAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/incidents", strings.NewReader(`{"title":"跳过响应流程","status":"已关闭","level":"P3"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	server.Routes().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected non-initial incident status to be rejected, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

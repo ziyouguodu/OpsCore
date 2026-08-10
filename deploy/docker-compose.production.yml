@@ -1,0 +1,26 @@
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required for production}
+
+  backend:
+    ports: !reset []
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      OPSCORE_ENV: production
+      OPSCORE_DATABASE_URL: "postgres://${POSTGRES_USER:-opscore}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required for production}@postgres:5432/${POSTGRES_DB:-opscore}?sslmode=disable"
+      OPSCORE_JWT_SECRET: ${OPSCORE_JWT_SECRET:?OPSCORE_JWT_SECRET is required for production}
+      OPSCORE_CREDENTIAL_ENCRYPTION_KEY: ${OPSCORE_CREDENTIAL_ENCRYPTION_KEY:?OPSCORE_CREDENTIAL_ENCRYPTION_KEY is required for production}
+      OPSCORE_INITIAL_ADMIN_PASSWORD: ${OPSCORE_INITIAL_ADMIN_PASSWORD:?OPSCORE_INITIAL_ADMIN_PASSWORD is required for production}
+      OPSCORE_CORS_ORIGIN: ${OPSCORE_CORS_ORIGIN:?OPSCORE_CORS_ORIGIN is required for production}
+      OPSCORE_TRUST_PROXY: "true"
+
+  frontend:
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true

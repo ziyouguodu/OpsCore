@@ -64,10 +64,10 @@ function closeEditorOnFocusOut(event) {
           <section v-if="userFormOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
             <h3>{{ newUser.id ? '编辑用户' : '新增用户' }}</h3>
             <div class="form-grid user-form">
-              <input v-model="newUser.username" placeholder="登录账号" />
-              <input v-model="newUser.displayName" placeholder="姓名 / 显示名" />
-              <input v-model="newUser.password" type="password" :placeholder="newUser.id ? '新密码（留空不修改）' : '初始密码'" />
-              <select v-model="newUser.role" :disabled="newUser.id === currentUserId && newUser.role === 'super_admin' && displayUsers.filter((user) => user.roles?.includes('super_admin')).length <= 1"><option value="ops_engineer">运维工程师</option><option value="super_admin">超级管理员</option></select>
+              <input v-model="newUser.username" aria-label="登录账号" placeholder="登录账号" />
+              <input v-model="newUser.displayName" aria-label="姓名或显示名" placeholder="姓名 / 显示名" />
+              <input v-model="newUser.password" aria-label="用户密码" type="password" :placeholder="newUser.id ? '新密码（留空不修改）' : '初始密码'" />
+              <select v-model="newUser.role" aria-label="用户角色" :disabled="newUser.id === currentUserId && newUser.role === 'super_admin' && displayUsers.filter((user) => user.roles?.includes('super_admin')).length <= 1"><option value="ops_engineer">运维工程师</option><option value="super_admin">超级管理员</option></select>
               <label class="inline-check"><input v-model="newUser.mustChangePassword" type="checkbox" />首次登录修改密码</label>
               <button class="primary" @click="$emit('save-user')">{{ newUser.id ? '保存用户' : '新增用户' }}</button>
               <button @click="$emit('close-user-form')">取消</button>
@@ -99,12 +99,12 @@ function closeEditorOnFocusOut(event) {
             <dt>登录方式</dt><dd>一期账号密码</dd>
             <dt>初始账号</dt><dd>admin / 首次登录修改初始化密码</dd>
             <dt>SSO/LDAP</dt><dd>灰度占位，暂不接入</dd>
-            <dt>凭据查看</dt><dd>{{ credentialVerification.hasPassword ? '已配置统一校验密码' : '未配置，暂回退登录密码' }}</dd>
+            <dt>凭据查看</dt><dd>{{ credentialVerification.hasPassword ? '已配置统一校验密码' : '未配置，禁止查看明文凭据' }}</dd>
           </dl>
           <section v-if="canManage" class="credential-policy">
             <h4>统一二次校验密码</h4>
-            <input v-model="credentialVerification.password" type="password" placeholder="设置统一校验密码" />
-            <input v-model="credentialVerification.confirm" type="password" placeholder="再次确认校验密码" />
+            <input v-model="credentialVerification.password" aria-label="统一校验密码" type="password" placeholder="设置统一校验密码" />
+            <input v-model="credentialVerification.confirm" aria-label="确认统一校验密码" type="password" placeholder="再次确认校验密码" />
             <button class="primary" @click="$emit('save-credential-password')">{{ credentialVerification.hasPassword ? '更新校验密码' : '设置校验密码' }}</button>
             <p v-if="credentialVerification.message" :class="['inline', credentialVerification.message.includes('失败') || credentialVerification.message.includes('不') || credentialVerification.message.includes('至少') || credentialVerification.message.includes('无权') ? 'error' : 'muted']">{{ credentialVerification.message }}</p>
           </section>

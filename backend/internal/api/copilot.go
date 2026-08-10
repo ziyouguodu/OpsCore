@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,7 +46,7 @@ func (s *Server) copilotTestConnection(w http.ResponseWriter, r *http.Request) {
 	if normalizeCopilotProvider(body.Provider) != "local" && strings.TrimSpace(body.APIKey) == "" {
 		apiKey, err := s.store.GetCopilotAPIKey(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		body.APIKey = apiKey
@@ -63,7 +64,7 @@ func (s *Server) copilotConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		item, err := s.store.GetCopilotConfig(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, item)
@@ -77,6 +78,7 @@ func (s *Server) copilotConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
+		item.AuditEnabled = true
 		saved, err := s.store.UpsertCopilotConfig(r.Context(), item)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -183,6 +185,18 @@ func validateCopilotConfig(item models.CopilotConfig) error {
 	if model == "" {
 		return errors.New("model is required")
 	}
+	if raw := strings.TrimSpace(item.Temperature); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || value < 0 || value > 2 {
+			return errors.New("temperature must be a number between 0 and 2")
+		}
+	}
+	if raw := strings.TrimSpace(item.MaxTokens); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 4096 {
+			return errors.New("maxTokens must be an integer between 1 and 4096")
+		}
+	}
 	base, err := normalizeHTTPBase(endpoint)
 	if err != nil {
 		return err
@@ -197,6 +211,9 @@ func normalizeHTTPBase(raw string) (string, error) {
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", errors.New("endpoint must use http or https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("endpoint must not contain credentials, query parameters or fragments")
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
@@ -232,6 +249,10 @@ func validateCopilotEndpointAccess(base string, provider string) error {
 }
 
 func newCopilotHTTPClient(provider string) *http.Client {
+	return newCopilotHTTPClientWithTimeout(provider, 8*time.Second)
+}
+
+func newCopilotHTTPClientWithTimeout(provider string, timeout time.Duration) *http.Client {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	transport := &http.Transport{
 		Proxy: nil,
@@ -263,7 +284,7 @@ func newCopilotHTTPClient(provider string) *http.Client {
 		},
 	}
 	return &http.Client{
-		Timeout:       8 * time.Second,
+		Timeout:       timeout,
 		Transport:     transport,
 		CheckRedirect: copilotRedirectPolicy(provider),
 	}
@@ -284,6 +305,9 @@ func copilotRedirectPolicy(provider string) func(*http.Request, []*http.Request)
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("too many model service redirects")
+		}
+		if len(via) > 0 && !strings.EqualFold(req.URL.Hostname(), via[0].URL.Hostname()) {
+			return errors.New("cross-host model service redirects are not allowed")
 		}
 		return validateCopilotEndpointAccess(req.URL.String(), provider)
 	}

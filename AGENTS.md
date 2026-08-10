@@ -26,7 +26,8 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
     - `TaskView.vue` / `IncidentView.vue`：任务与事件概览、编辑、列表、详情、状态流转和分页。
     - `DutyManagementView.vue`：值班概览、日历、排班模板、人员、交接和升级策略的内聚工作区。
     - `PermissionsView.vue` / `CopilotSettingsView.vue`：角色与资源权限、凭据校验策略和 AI 模型连接配置。
-  - `src/dashboard-metrics.js` / `src/duty-date.js`：首页实时指标和值班日期的可测试纯逻辑。
+  - `src/composables/`：路由、首页视图模型、Copilot、延迟加载、确认弹窗和 Toast 等可测试编排逻辑。
+  - `src/dashboard-metrics.js` / `src/duty-date.js` / `src/workflow-status.js`：首页实时指标、值班日期与任务/事件合法状态选项的纯逻辑。
   - `src/navigation.js`：菜单、页面元信息和权限页签配置。
   - `src/ui/icons.js`：统一线性图标路径配置。
   - `src/api.js`：API 客户端、Token 存储和登录辅助方法。
@@ -40,7 +41,7 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
   - `internal/crypto/`：敏感凭据加密。
   - `internal/domain/`：领域状态规则。
   - `internal/models/`：后端共享模型。
-  - `internal/store/`：PostgreSQL 表结构和持久化逻辑。
+  - `internal/store/`：PostgreSQL 表结构和持久化逻辑；凭据、任务/事件、值班、分页、仪表盘和审计按领域拆分。
 - `deploy/`：Docker Compose 和环境变量模板。
 - `scripts/`：本地运维脚本。
   - `smoke-api.sh`：通过后端容器执行端到端 API Smoke 流程。
@@ -60,7 +61,7 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
 - 权限管理：包含 `super_admin` 和 `ops_engineer` 两类角色。
 - 资产和中间件敏感凭据：使用 AES-GCM 加密存储。
 - 全局 AI Copilot 入口：当前主要承担查询、摘要和建议类交互。
-- AI Copilot 配置：一期前端提供模型厂商、端点、模型、上下文授权、审计边界、连接测试和后端密钥托管界面；真实模型调用代理后续再接入。
+- AI Copilot 配置与问答：一期提供多模型配置档案、唯一当前启用模型、厂商条件字段、上下文授权、审计边界、连接测试、后端密钥托管和真实模型代理调用。
 
 产品原则：首页看健康，异常看影响，告警看根因，处置看流程，复盘看改进，AI 贯穿查询、分析、建议和自动化。
 
@@ -75,6 +76,9 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
 - AI Copilot 连接测试需要限制服务端可访问地址：本地模型 provider 可使用 `localhost`、`127.0.0.1`、私网地址或 `host.docker.internal`； hosted provider 默认不得使用 loopback、私网地址、链路本地地址或云元数据服务地址，避免把连接测试变成 SSRF 探测入口。
 - AI Copilot Endpoint 安全策略必须覆盖配置保存、HTTP 重定向和 DNS 解析结果。Hosted provider 的重定向目标及域名解析 IP 仍需拒绝 loopback、私网、链路本地和元数据地址；实际连接应使用已校验的解析结果，避免 DNS 重绑定绕过。
 - AI Copilot 配置保存必须通过后端完成，API Key 使用现有 AES-GCM 密钥能力加密后托管；GET/PUT 响应只能返回 `hasApiKey` 状态，不得返回明文 API Key。切换模型厂商或 endpoint 且未重新输入 Key 时，应清理旧托管 Key，避免跨厂商错配。
+- AI Copilot 模型配置使用 `copilot_model_configs` 关系表持久化，可保存多个厂商和模型，但数据库最多只有一个 `is_active=true`；首条配置自动启用，当前启用配置不能直接删除，问答代理只读取服务端当前启用项。
+- AI Copilot 问答通过后端 `/api/copilot/chat` 代理真实模型调用；上下文必须同时受当前数据库角色权限和配置开关约束，不得包含资产或实例凭据。问答审计为强制安全边界，不能由前端关闭；单用户/IP 默认限制为每分钟 20 次请求。
+- 后端只有在 `OPSCORE_TRUST_PROXY=true` 时才信任 Nginx 写入的 `X-Real-IP` / `X-Forwarded-For`；本地直连默认关闭，生产 Compose 因后端端口不对宿主机暴露而启用。不能在可被不可信客户端直连的部署中盲目信任转发头。
 
 ## 开发规则
 
@@ -82,6 +86,9 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
 - 修改范围应尽量贴近当前任务，不做无关重构。
 - 后端必须执行关键业务规则校验，即使前端已经做过表单校验。
 - 普通 API 响应不得暴露明文凭据。凭据查看必须保留权限校验和密码验证。
+- 敏感凭据只能使用超级管理员配置的统一二次校验密码查看；统一密码未配置时必须拒绝明文查看，不能回退当前账号登录密码。
+- 登录和凭据二次验证必须保留失败次数限制与临时锁定；新增认证入口或敏感验证入口时不能绕过统一限流。
+- 登录、用户与角色、凭据查看、配置、值班、任务和事件等关键写操作必须记录服务端审计事件；审计详情不得包含密码、Token、API Key 或明文凭据。
 - 保留首次登录修改密码门禁。`mustChangePassword` 用户不得访问业务 API。
 - API 授权必须使用数据库中的当前用户角色，不能长期信任 Token 签发时的旧角色；角色调整后已有 Token 应立即按最新权限生效。
 - 遵守 RBAC 边界：
@@ -107,6 +114,10 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
   - 空事件等级默认保存为 `P3`。
   - 空事件状态默认保存为 `新建`。
 - 保持凭据加密稳定。`OPSCORE_CREDENTIAL_ENCRYPTION_KEY` 至少 32 字节，生产环境必须固定保存。
+- `OPSCORE_ENV=production` 时必须执行生产配置校验并拒绝默认/占位数据库密码、JWT 密钥、凭据密钥和管理员初始密码；生产部署使用 `deploy/docker-compose.production.yml` 覆盖配置。
+- 对外错误响应不得直接回显 PostgreSQL、加密、网络连接或内部堆栈信息；详细错误只写服务端日志。
+- 任务、事件和值班负责人有关联用户 ID 时，后端必须以 `users` 表中的当前显示名为准，不能信任客户端同时提交的姓名文本。
+- 可增长列表使用服务端分页；页码超出有效范围时返回最后一页。关键词模糊查询依赖 `pg_trgm` GIN 索引，新增搜索字段时应同步更新查询表达式与迁移索引。
 
 ## 前端约定
 
@@ -139,12 +150,15 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
 - 删除值班团队必须有保护逻辑：已有人员归属的团队不能直接删除，应先迁移或调整人员团队，避免产生孤儿人员、排班模板或当前值班记录。
 - 值班管理不应保留纯展示性质的“模拟告警”按钮，避免把测试演示操作误认为真实生产能力。
 - 值班中心的团队、系统用户成员、排班模板、日历分配、当前值班、交接和升级策略通过 `/api/duty-center` 持久化，写入使用 revision 乐观并发控制。`daily` / `weekly` 基础值班记录接口继续保留兼容。
+- 值班中心 JSON 仅保留为兼容快照；团队、成员、模板、分配、当前值班、交接与升级策略以 `duty_*` 关系表作为读取主源，并在同一事务内与 revision 同步。值班成员引用用户时使用外键约束。
 - 值班中心不得重新引入固定姓名、固定告警数或固定响应指标；无真实数据时展示明确空状态。
 - 用户角色调整和删除必须保证系统至少保留一个 `super_admin`；该约束必须在数据库事务边界执行，不能只依赖前端禁用。
 - 任务和事件状态流转必须在数据库行锁事务中再次校验，避免并发请求基于旧状态产生非法回退。
+- 新建任务只能从“待处理”开始，新建事件只能从“新建”开始；前端状态控件只呈现当前状态及服务端允许的下一状态，内容编辑不能绕过状态流。
 - 前端 Bearer Token 使用 `sessionStorage`，不得持久化到 `localStorage`；任一已认证请求返回 401 时统一清理会话并返回登录页。
 - 数据库结构使用 `schema_migrations` 版本记录执行，新增表或字段不得继续追加为每次启动都重复执行的无版本 DDL。
-- AI Copilot 配置页属于“系统配置”，支持本地模型、OpenAI GPT、Anthropic Claude、Google Gemini 和 OpenAI 兼容接口；生产密钥不得落前端持久化，保存后输入框应清空并仅展示托管状态。
+- AI Copilot 配置页属于“系统配置”，支持本地模型、OpenAI GPT、Anthropic Claude、Google Gemini 和 OpenAI 兼容接口；页面以已保存模型列表为主，新增/编辑时才展开表单。Local 只展示本地地址和模型，Hosted 厂商只展示 Endpoint、模型和 API Key。生产密钥不得落前端持久化，保存后输入框应清空并仅展示托管状态。
+- AI Copilot 默认 `Temperature=0.2`、`Max Tokens=2048`；后端允许范围分别为 `0..2` 和 `1..4096`。UI 使用“回答随机性”和“最大输出长度”解释其含义。
 - AI Copilot 未打开时入口放在控制台顶栏右侧的图标按钮中，不占用侧栏菜单，也不使用会遮挡业务图表、列表或操作区的页面底部悬浮按钮；打开后聊天窗仍可放大、还原和隐藏。
 - AI Copilot 配置页的“测试连接”属于系统级密钥验证操作，只允许超级管理员使用；普通角色不得获得测试或提交真实生产密钥的能力。
 - Docker Compose 栈中后端容器访问宿主机本地模型时，默认使用 `http://host.docker.internal:11434`；`deploy/docker-compose.yml` 需要为 backend 保留 `extra_hosts: ["host.docker.internal:host-gateway"]`，以兼容 Linux/远程 Docker 环境。如果后端在宿主机本地运行，可再改回 `http://localhost:11434`。
@@ -176,6 +190,7 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
 - `OPSCORE_CREDENTIAL_ENCRYPTION_KEY`
 - `OPSCORE_INITIAL_ADMIN_PASSWORD`
 - `OPSCORE_CORS_ORIGIN`
+- `OPSCORE_TRUST_PROXY`
 - `VITE_API_BASE`
 - `VITE_ENABLE_DEMO_DATA`
 
@@ -228,6 +243,13 @@ cd frontend
 npm run test:unit
 ```
 
+前端静态检查：
+
+```bash
+cd frontend
+npm run lint
+```
+
 前端 E2E 检查：
 
 ```bash
@@ -267,8 +289,10 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - 仅后端变更：`cd backend && go test ./...`
 - 为避免 Go 构建缓存污染 Git 状态，建议使用 `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...`；`backend/.gocache/` 已从 Git 跟踪中移除并保持忽略。
 - 仅前端变更：`cd frontend && npm run test:unit && npm run build`
+- 前端提交前还应执行 `cd frontend && npm run lint`，静态检查禁止原生浏览器弹窗、持久化认证数据、调试日志和未经审计的 `v-html`。
 - 前端页面或交互变更：除构建外，还必须核查对应页面功能点是否闭环，包括入口是否可见、按钮是否可触发、弹窗是否能取消/保存、状态是否刷新、禁用/权限态是否清晰、列表/详情/筛选/分页是否无明显残留或冲突。
 - 前端页面或交互变更优先补充或执行 Playwright 检查：`cd frontend && npm run test:e2e`。当前 E2E 至少包含登录页 smoke 和一期页面逐页点击巡检，覆盖首页 KPI 跳转、侧边栏菜单、表单打开/取消、详情隐藏、分页、值班 Tab/弹窗、权限 Tab 和 AI Copilot 配置入口。如果浏览器依赖缺失，先运行 `npx playwright install chromium`。
+- `frontend/e2e/visual-regression.spec.js` 负责生成桌面和 390px 移动端巡检截图，并检查页面级横向溢出与控制台错误；截图输出到已忽略的 `output/playwright/`。
 - 响应式改动还必须在 390px 左右移动视口检查主内容宽度、移动导航打开/关闭、二级页切换和页面级横向溢出；不能只依赖桌面构建结果。
 - 登录页视觉回归至少在 Playwright 默认 1280px 桌面视口检查主标题完整显示，避免中文标题出现孤字换行；重要页面调整后应保留真实浏览器截图核查重叠、溢出和信息密度。
 - 涉及表格页面时，必须额外核查表头、行高、横线、操作列、空状态和分页条是否与资产台账等已确认页面保持一致。
@@ -285,12 +309,13 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 ## 文档与交付物
 
 - `README.md` 应始终与真实启动方式、验证方式、凭据规则和权限行为保持一致。
+- `README.md` 的一期技术架构图使用 GitHub 可渲染的 Mermaid，并与当前 Nginx、Vue、Go API、PostgreSQL、认证治理和 AI 模型代理边界保持一致；部署方式在部署章节说明，不混入核心逻辑架构。
 - 面向客户或评审的交付物放在 `deliverables/`。
 
 ## 建议下一步
 
-- 页面模板已完成首轮组件化；后续优先按领域将 `frontend/src/App.vue` 中的全局数据加载、表单状态和 API 编排拆为可测试 composable，避免重新形成单文件状态中心。
+- 页面模板和首页视图模型已完成首轮组件化；后续继续按领域将 `frontend/src/App.vue` 中的资产、实例和用户 API 编排拆为可测试 composable，避免重新形成单文件状态中心。
 - 如果前端继续高频迭代，补充基础 lint 和最小测试能力。
 - 后端路由稳定后，补充 API 文档或 OpenAPI 风格的接口说明。
 - 在启用任何高风险操作或自动化动作前，先补充审计日志。
-- 将 AI Copilot 从静态助手行为扩展为基于真实资产、事件、任务、值班和预案的权限感知查询与建议流程。
+- 在现有权限感知真实模型代理基础上，继续扩展预案检索、证据引用、效果评估和经人工确认的受控自动化流程。

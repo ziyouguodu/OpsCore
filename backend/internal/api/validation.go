@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"opscore/backend/internal/domain"
 	"opscore/backend/internal/models"
@@ -101,6 +102,11 @@ func prepareOnCall(item *models.OnCallSchedule) error {
 	if item.RuleType == "daily" && strings.TrimSpace(item.Date) == "" {
 		return errors.New("oncall date is required for daily rule")
 	}
+	if item.RuleType == "daily" {
+		if _, err := time.Parse("2006-01-02", item.Date); err != nil {
+			return errors.New("oncall date must use YYYY-MM-DD")
+		}
+	}
 	if item.RuleType == "weekly" && strings.TrimSpace(item.Week) == "" {
 		return errors.New("oncall week is required for weekly rule")
 	}
@@ -119,6 +125,11 @@ func containsString(values []string, target string) bool {
 func validateTaskMutation(item models.Task) error {
 	if strings.TrimSpace(item.Title) == "" {
 		return errors.New("task title is required")
+	}
+	if item.DueAt != "" {
+		if _, err := parseAPITimestamp(item.DueAt); err != nil {
+			return errors.New("task dueAt must be an ISO date or timestamp")
+		}
 	}
 	return nil
 }
@@ -152,7 +163,35 @@ func validateIncidentMutation(item models.Incident) error {
 	if strings.TrimSpace(item.Title) == "" {
 		return errors.New("incident title is required")
 	}
+	started, startedErr := parseOptionalAPITimestamp(item.StartedAt)
+	recovered, recoveredErr := parseOptionalAPITimestamp(item.RecoveredAt)
+	if startedErr != nil || recoveredErr != nil {
+		return errors.New("incident startedAt and recoveredAt must be ISO dates or timestamps")
+	}
+	if started != nil && recovered != nil && recovered.Before(*started) {
+		return errors.New("incident recoveredAt cannot be before startedAt")
+	}
 	return nil
+}
+
+func parseOptionalAPITimestamp(value string) (*time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	parsed, err := parseAPITimestamp(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func parseAPITimestamp(value string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02 15:04:05-07", "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, errors.New("invalid timestamp")
 }
 
 func validateIncidentLevel(level string) error {

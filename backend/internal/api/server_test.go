@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"opscore/backend/internal/auth"
 	"opscore/backend/internal/config"
 	"opscore/backend/internal/models"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestReadJSONRejectsUnknownFields(t *testing.T) {
@@ -40,6 +43,16 @@ func TestReadJSONRejectsOversizedBodies(t *testing.T) {
 	}
 }
 
+func TestPublicErrorHidesInternalAndDatabaseDetails(t *testing.T) {
+	if got := publicError(http.StatusInternalServerError, errors.New("dial postgres at secret-host")); got != "internal server error" {
+		t.Fatalf("internal error leaked details: %s", got)
+	}
+	databaseError := &pgconn.PgError{Code: "22001", Message: "value too long", Detail: "sensitive table detail"}
+	if got := publicError(http.StatusBadRequest, databaseError); got != "request could not be processed" {
+		t.Fatalf("database error leaked details: %s", got)
+	}
+}
+
 func TestCORSAllowsConfiguredFrontendOrigin(t *testing.T) {
 	server := &Server{cfg: config.Config{CORSOrigin: "http://localhost:5173"}}
 	handler := server.cors(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +68,22 @@ func TestCORSAllowsConfiguredFrontendOrigin(t *testing.T) {
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
 		t.Fatalf("unexpected CORS origin: %s", got)
+	}
+}
+
+func TestHealthIncludesDatabaseReadiness(t *testing.T) {
+	healthy := &Server{store: &mutationStore{}}
+	healthyRecorder := httptest.NewRecorder()
+	healthy.health(healthyRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if healthyRecorder.Code != http.StatusOK || !strings.Contains(healthyRecorder.Body.String(), `"database":"ok"`) {
+		t.Fatalf("expected healthy database status, got %d: %s", healthyRecorder.Code, healthyRecorder.Body.String())
+	}
+
+	unhealthy := &Server{store: &mutationStore{pingErr: errors.New("database unavailable")}}
+	unhealthyRecorder := httptest.NewRecorder()
+	unhealthy.health(unhealthyRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if unhealthyRecorder.Code != http.StatusServiceUnavailable || !strings.Contains(unhealthyRecorder.Body.String(), `"database":"unavailable"`) {
+		t.Fatalf("expected unhealthy database status, got %d: %s", unhealthyRecorder.Code, unhealthyRecorder.Body.String())
 	}
 }
 

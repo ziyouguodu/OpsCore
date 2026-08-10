@@ -1,8 +1,9 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, clearToken, getToken, login as loginApi, setSessionExpiredHandler } from './api'
 import { copilotProviders, menuPermissionRows, permissionRows, roleCards } from './app-config'
 import AssetView from './components/AssetView.vue'
+import AuditView from './components/AuditView.vue'
 import AuthView from './components/AuthView.vue'
 import CopilotSettingsView from './components/CopilotSettingsView.vue'
 import CopilotWidget from './components/CopilotWidget.vue'
@@ -14,32 +15,43 @@ import MiddlewareView from './components/MiddlewareView.vue'
 import PermissionsView from './components/PermissionsView.vue'
 import SidebarNav from './components/SidebarNav.vue'
 import TaskView from './components/TaskView.vue'
+import ToastStack from './components/ToastStack.vue'
 import Topbar from './components/Topbar.vue'
 import { useConfirmDialog } from './composables/useConfirmDialog'
-import { summarizeDashboardMetrics } from './dashboard-metrics'
-import { controlPrinciple, permissionTabs, routeViews, viewMeta } from './navigation'
+import { useCopilotChat } from './composables/useCopilotChat'
+import { useDashboardViewModel } from './composables/useDashboardViewModel'
+import { useDeferredLoader } from './composables/useDeferredLoader'
+import { useToast } from './composables/useToast'
+import { useWorkspaceRoute } from './composables/useWorkspaceRoute'
+import { toAPITimestamp, toDateTimeLocal } from './date-time'
+import { buildListPath } from './list-query'
+import { controlPrinciple, viewMeta } from './navigation'
 import { sampleAssets, sampleIncidents, sampleMiddleware, sampleOncalls, sampleTasks, sampleUsers } from './sample-data'
 
 const demoDataEnabled = import.meta.env.VITE_ENABLE_DEMO_DATA === 'true'
 
-function parseRouteHash() {
-  const raw = window.location.hash.replace(/^#/, '')
-  const [view, tab] = raw.split('/')
-  return {
-    view: routeViews.includes(view) ? view : 'dashboard',
-    permissionTab: permissionTabs.includes(tab) ? tab : 'users'
+const { activeView, permissionTab, goToView } = useWorkspaceRoute({
+  beforeNavigate: () => closeOpenEditors(),
+  afterNavigate: ({ clearFeedback }) => {
+    mobileNavOpen.value = false
+    if (clearFeedback) error.value = ''
   }
-}
-
-const initialRoute = parseRouteHash()
-const activeView = ref(initialRoute.view)
-const permissionTab = ref(initialRoute.permissionTab)
-const copilotOpen = ref(false)
-const copilotExpanded = ref(false)
+})
+const {
+  open: copilotOpen,
+  expanded: copilotExpanded,
+  question: copilotQuestion,
+  messages: copilotMessages,
+  busy: copilotBusy,
+  hide: hideCopilot,
+  toggleSize: toggleCopilotSize,
+  send: askCopilot
+} = useCopilotChat()
 const sidebarCollapsed = ref(true)
 const mobileNavOpen = ref(false)
 const loading = ref(false)
 const error = ref('')
+const { messages: toastMessages, notify, dismiss: dismissToast } = useToast()
 const { confirmState, requestConfirm, cancelConfirm, acceptConfirm } = useConfirmDialog((err) => {
   error.value = err.message || '操作失败'
 })
@@ -52,6 +64,8 @@ const middlewareFormOpen = ref(false)
 const taskFormOpen = ref(false)
 const incidentFormOpen = ref(false)
 const userFormOpen = ref(false)
+const copilotEditorMode = ref('closed')
+const copilotProfiles = ref([])
 const credential = reactive({ loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
 const credentialReveal = reactive({ password: '', revealed: false })
 const credentialMessage = ref('')
@@ -75,18 +89,21 @@ const passwordInit = reactive({
 const hasAppAccess = computed(() => Boolean(auth.token && auth.user && !auth.user.mustChangePassword))
 const needsInitialPassword = computed(() => Boolean(auth.token && auth.user?.mustChangePassword))
 const authPending = computed(() => Boolean(auth.token && !auth.user))
-const copilotQuestion = ref('')
-const copilotMessages = ref([
-  { role: 'ai', text: '我可以查询资产、活跃事件、今日值班和待处理任务，并给出处置建议。' }
-])
-
 const emptyDashboard = {
   assetCount: 0,
   todayOnCallCount: 0,
   activeTaskCount: 0,
   activeIncidentCount: 0,
   assetTypeCounts: {},
-  incidentLevelCounts: {}
+  incidentLevelCounts: {},
+  taskStatusCounts: {},
+  assetHealthyCount: 0,
+  assetAbnormalCount: 0,
+  taskClosedCount: 0,
+  taskOpenCount: 0,
+  incidentClosedCount: 0,
+  responseMinutesTotal: 0,
+  responseSampleCount: 0
 }
 
 const state = reactive({
@@ -96,7 +113,9 @@ const state = reactive({
   oncalls: [],
   tasks: [],
   incidents: [],
-  users: []
+  users: [],
+  userDirectory: [],
+  auditEvents: []
 })
 
 
@@ -138,10 +157,12 @@ const newMiddleware = reactive({
   assetId: ''
 })
 
-const newTask = reactive({ id: null, title: '', type: '任务', assignee: '', status: '待处理', dueAt: '', description: '' })
-const newIncident = reactive({ id: null, title: '', level: 'P3', status: '新建', owner: '', business: '', startedAt: '', recoveredAt: '', summary: '' })
+const newTask = reactive({ id: null, title: '', type: '任务', assignee: '', assigneeUserId: '', status: '待处理', dueAt: '', description: '' })
+const newIncident = reactive({ id: null, title: '', level: 'P3', status: '新建', owner: '', ownerUserId: '', business: '', startedAt: '', recoveredAt: '', summary: '' })
 const newUser = reactive({ id: null, username: '', displayName: '', password: '', mustChangePassword: true, role: 'ops_engineer' })
 const copilotConfig = reactive({
+  id: null,
+  name: '',
   provider: 'openai',
   model: 'gpt-4.1',
   endpoint: 'https://api.openai.com/v1',
@@ -150,12 +171,13 @@ const copilotConfig = reactive({
   apiKey: '',
   hasApiKey: false,
   temperature: '0.2',
-  maxTokens: '4096',
+  maxTokens: '2048',
   enableAssetContext: true,
   enableIncidentContext: true,
   enableTaskContext: true,
   enableOncallContext: true,
-  auditEnabled: true
+  auditEnabled: true,
+  isActive: false
 })
 const copilotConnection = reactive({
   testing: false,
@@ -170,6 +192,12 @@ const assetPager = reactive({ page: 1, pageSize: 10 })
 const middlewarePager = reactive({ page: 1, pageSize: 10 })
 const taskPager = reactive({ page: 1, pageSize: 10 })
 const incidentPager = reactive({ page: 1, pageSize: 10 })
+const listMeta = reactive({
+  assets: { total: 0, pageCount: 1, options: { business: [], networkZone: [] } },
+  middleware: { total: 0, pageCount: 1, options: { business: [], networkZone: [] } },
+  tasks: { total: 0, pageCount: 1, counts: {} },
+  incidents: { total: 0, pageCount: 1, counts: {} }
+})
 
 const activeTitle = computed(() => viewMeta[activeView.value]?.title || '首页健康总览')
 const activeBreadcrumb = computed(() => viewMeta[activeView.value]?.breadcrumb || '工作台')
@@ -210,166 +238,54 @@ function isSampleRecord(item) {
   return Boolean(item?.__sample)
 }
 
-function countBy(items, field, defaults = []) {
-  const counts = Object.fromEntries(defaults.map((item) => [item, 0]))
-  for (const item of items) {
-    const key = item[field] || '未设置'
-    counts[key] = (counts[key] || 0) + 1
-  }
-  return counts
-}
-
 const displayAssets = computed(() => state.assets.length ? state.assets : (demoDataEnabled ? sampleAssets : []))
 const displayMiddleware = computed(() => state.middleware.length ? state.middleware : (demoDataEnabled ? sampleMiddleware : []))
 const displayOncalls = computed(() => state.oncalls.length ? state.oncalls : (demoDataEnabled ? sampleOncalls : []))
 const displayTasks = computed(() => state.tasks.length ? state.tasks : (demoDataEnabled ? sampleTasks : []))
 const displayIncidents = computed(() => state.incidents.length ? state.incidents : (demoDataEnabled ? sampleIncidents : []))
 const displayUsers = computed(() => state.users.length ? state.users : (demoDataEnabled ? sampleUsers : []))
-const dashboardMetrics = computed(() => summarizeDashboardMetrics({
-  assets: displayAssets.value,
-  middleware: displayMiddleware.value,
-  tasks: displayTasks.value,
-  incidents: displayIncidents.value
-}))
-const taskStatusCounts = computed(() => countBy(displayTasks.value, 'status', ['待处理', '处理中', '待确认', '已完成', '已关闭']))
-const incidentLevelCounts = computed(() => countBy(displayIncidents.value, 'level', ['P1', 'P2', 'P3', 'P4']))
-const activeTasks = computed(() => displayTasks.value.filter((item) => !['已完成', '已关闭'].includes(item.status)))
-const activeIncidents = computed(() => displayIncidents.value.filter((item) => item.status !== '已关闭'))
-const todayOncall = computed(() => displayOncalls.value[0] || {})
 const currentTask = computed(() => selectedTask.value || null)
 const currentIncident = computed(() => selectedIncident.value || null)
-const dashboardAssetCount = computed(() => {
-  if (demoDataEnabled && !state.assets.length && !state.middleware.length && state.dashboard.assetCount === 0) {
-    return displayAssets.value.length + displayMiddleware.value.length
-  }
-  return state.dashboard.assetCount
+const {
+  assetKpiBars,
+  dashboardAssetCount,
+  dashboardIncidentCount,
+  dashboardMetrics,
+  dashboardOncallCount,
+  dashboardPriorityItems,
+  dashboardTaskCount,
+  incidentKpiLevels,
+  incidentLevelCounts,
+  taskKpiCards,
+  taskStatusCounts,
+  todayOncall
+} = useDashboardViewModel({
+  demoDataEnabled,
+  state,
+  listMeta,
+  displayAssets,
+  displayMiddleware,
+  displayOncalls,
+  displayTasks,
+  displayIncidents
 })
-const dashboardOncallCount = computed(() => {
-  if (demoDataEnabled && !state.oncalls.length && state.dashboard.todayOnCallCount === 0) {
-    return displayOncalls.value.length
-  }
-  return state.dashboard.todayOnCallCount
-})
-const dashboardTaskCount = computed(() => {
-  if (demoDataEnabled && !state.tasks.length && state.dashboard.activeTaskCount === 0) {
-    return activeTasks.value.length
-  }
-  return state.dashboard.activeTaskCount
-})
-const dashboardIncidentCount = computed(() => {
-  if (demoDataEnabled && !state.incidents.length && state.dashboard.activeIncidentCount === 0) {
-    return activeIncidents.value.length
-  }
-  return state.dashboard.activeIncidentCount
-})
-const assetKpiBars = computed(() => {
-  const databaseKinds = ['MySQL', 'PostgreSQL', '达梦']
-  const serverCount = displayAssets.value.length
-  const databaseCount = displayMiddleware.value.filter((item) => databaseKinds.includes(item.kind)).length
-  const middlewareCount = Math.max(displayMiddleware.value.length - databaseCount, 0)
-  const items = [
-    { label: '服务器', value: serverCount, tone: 'server' },
-    { label: '数据库', value: databaseCount, tone: 'database' },
-    { label: '中间件', value: middlewareCount, tone: 'middleware' }
-  ]
-  const max = Math.max(...items.map((item) => item.value), 1)
-  return items.map((item) => ({ ...item, height: `${Math.max(24, Math.round((item.value / max) * 78))}%` }))
-})
-const taskKpiSegments = computed(() => [
-  { label: '待处理', value: taskStatusCounts.value['待处理'] || 0, color: '#f59e0b' },
-  { label: '处理中', value: taskStatusCounts.value['处理中'] || 0, color: '#2563eb' },
-  { label: '待确认', value: taskStatusCounts.value['待确认'] || 0, color: '#14b8a6' }
-])
-const taskKpiCards = computed(() => {
-  const total = Math.max(taskKpiSegments.value.reduce((sum, item) => sum + item.value, 0), 1)
-  return taskKpiSegments.value.map((item) => ({
-    ...item,
-    width: `${Math.max(10, Math.round((item.value / total) * 100))}%`
-  }))
-})
-const activeIncidentLevelCounts = computed(() => countBy(activeIncidents.value, 'level', ['P1', 'P2', 'P3', 'P4']))
-const incidentKpiLevels = computed(() => [
-  { label: 'P1', value: activeIncidentLevelCounts.value.P1 || 0, desc: '高危', tone: 'p1' },
-  { label: 'P2', value: activeIncidentLevelCounts.value.P2 || 0, desc: '重要', tone: 'p2' },
-  { label: 'P3', value: activeIncidentLevelCounts.value.P3 || 0, desc: '一般', tone: 'p3' },
-  { label: 'P4', value: activeIncidentLevelCounts.value.P4 || 0, desc: '观察', tone: 'p4' }
-])
-const dashboardPriorityItems = computed(() => {
-  const incidentScore = { P1: 1, P2: 2, P3: 3, P4: 4 }
-  const taskScore = { 处理中: 5, 待处理: 6, 待确认: 7, 已完成: 8, 已关闭: 9 }
-  const incidents = activeIncidents.value.map((item) => ({
-    id: `incident-${item.id}`,
-    source: item,
-    target: 'incidents',
-    type: '事件',
-    title: item.title,
-    owner: item.owner || '未指定',
-    status: item.status,
-    badge: item.level,
-    meta: item.business || item.startedAt || '影响范围待确认',
-    score: incidentScore[item.level] || 4
-  }))
-  const tasks = activeTasks.value.map((item) => ({
-    id: `task-${item.id}`,
-    source: item,
-    target: 'tasks',
-    type: '任务',
-    title: item.title,
-    owner: item.assignee || '未指定',
-    status: item.status,
-    badge: item.dueAt || item.status,
-    meta: item.description || '待补充说明',
-    score: taskScore[item.status] || 9
-  }))
-  return [...incidents, ...tasks].sort((a, b) => a.score - b.score).slice(0, 6)
-})
-const assetBusinesses = computed(() => uniqueOptions(displayAssets.value, 'business'))
-const assetNetworkZones = computed(() => uniqueOptions(displayAssets.value, 'networkZone'))
-const middlewareBusinesses = computed(() => uniqueOptions(displayMiddleware.value, 'business'))
-const middlewareNetworkZones = computed(() => uniqueOptions(displayMiddleware.value, 'networkZone'))
-const filteredAssets = computed(() => filterRows(displayAssets.value, assetFilters, ['assetNo', 'business', 'ipv4', 'ipv6', 'owner', 'deploymentInfo']))
-const filteredMiddleware = computed(() => filterRows(displayMiddleware.value, middlewareFilters, ['name', 'kind', 'endpoint', 'business', 'owner']))
-const assetPageCount = computed(() => pageCount(filteredAssets.value.length, assetPager.pageSize))
-const middlewarePageCount = computed(() => pageCount(filteredMiddleware.value.length, middlewarePager.pageSize))
-const taskPageCount = computed(() => pageCount(displayTasks.value.length, taskPager.pageSize))
-const incidentPageCount = computed(() => pageCount(displayIncidents.value.length, incidentPager.pageSize))
-const pagedAssets = computed(() => paginate(filteredAssets.value, assetPager))
-const pagedMiddleware = computed(() => paginate(filteredMiddleware.value, middlewarePager))
-const pagedTasks = computed(() => paginate(displayTasks.value, taskPager))
-const pagedIncidents = computed(() => paginate(displayIncidents.value, incidentPager))
+const assetBusinesses = computed(() => listMeta.assets.options.business.length ? listMeta.assets.options.business : uniqueOptions(displayAssets.value, 'business'))
+const assetNetworkZones = computed(() => listMeta.assets.options.networkZone.length ? listMeta.assets.options.networkZone : uniqueOptions(displayAssets.value, 'networkZone'))
+const middlewareBusinesses = computed(() => listMeta.middleware.options.business.length ? listMeta.middleware.options.business : uniqueOptions(displayMiddleware.value, 'business'))
+const middlewareNetworkZones = computed(() => listMeta.middleware.options.networkZone.length ? listMeta.middleware.options.networkZone : uniqueOptions(displayMiddleware.value, 'networkZone'))
+const assetPageCount = computed(() => listMeta.assets.pageCount)
+const middlewarePageCount = computed(() => listMeta.middleware.pageCount)
+const taskPageCount = computed(() => listMeta.tasks.pageCount)
+const incidentPageCount = computed(() => listMeta.incidents.pageCount)
+const pagedAssets = computed(() => displayAssets.value)
+const pagedMiddleware = computed(() => displayMiddleware.value)
+const pagedTasks = computed(() => displayTasks.value)
+const pagedIncidents = computed(() => displayIncidents.value)
 
 const selectedCopilotProvider = computed(() => copilotProviders.find((item) => item.id === copilotConfig.provider) || copilotProviders[0])
 
 function uniqueOptions(items, field) {
   return [...new Set(items.map((item) => item[field]).filter(Boolean))]
-}
-
-function includesKeyword(item, fields, keyword) {
-  if (!keyword) return true
-  const query = keyword.trim().toLowerCase()
-  return fields.some((field) => String(item[field] || '').toLowerCase().includes(query))
-}
-
-function filterRows(items, filters, keywordFields) {
-  return items.filter((item) => {
-    return includesKeyword(item, keywordFields, filters.keyword) &&
-      (!filters.type || item.type === filters.type) &&
-      (!filters.kind || item.kind === filters.kind) &&
-      (!filters.environment || item.environment === filters.environment) &&
-      (!filters.business || item.business === filters.business) &&
-      (!filters.networkZone || item.networkZone === filters.networkZone) &&
-      (!filters.status || item.status === filters.status)
-  })
-}
-
-function pageCount(total, pageSize) {
-  return Math.max(1, Math.ceil(total / pageSize))
-}
-
-function paginate(items, pager) {
-  const current = Math.min(pager.page, pageCount(items.length, pager.pageSize))
-  const start = (current - 1) * pager.pageSize
-  return items.slice(start, start + pager.pageSize)
 }
 
 function resetAssetFilters() {
@@ -388,41 +304,9 @@ function assetSpec(asset) {
 
 function associatedAssetName(item) {
   if (!item.assetId) return '未关联'
+  if (item.assetNo) return item.assetNo
   const asset = displayAssets.value.find((entry) => entry.id === item.assetId)
   return asset ? asset.assetNo : `资产 ID ${item.assetId}`
-}
-
-function routeHash(view = activeView.value, tab = permissionTab.value) {
-  return view === 'permissions' ? `#${view}/${tab}` : `#${view}`
-}
-
-function resetPageScroll() {
-  nextTick(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
-}
-
-function syncRouteFromHash() {
-  const next = parseRouteHash()
-  if (activeView.value !== next.view || permissionTab.value !== next.permissionTab) {
-    closeOpenEditors()
-  }
-  activeView.value = next.view
-  permissionTab.value = next.permissionTab
-  mobileNavOpen.value = false
-  resetPageScroll()
-}
-
-function goToView(view, tab) {
-  const nextPermissionTab = permissionTabs.includes(tab) ? tab : permissionTab.value
-  if (activeView.value !== view || (view === 'permissions' && permissionTab.value !== nextPermissionTab)) {
-    closeOpenEditors()
-  }
-  activeView.value = view
-  if (view === 'permissions') {
-    permissionTab.value = nextPermissionTab
-  }
-  mobileNavOpen.value = false
-  resetPageScroll()
-  error.value = ''
 }
 
 function toggleSidebarNavigation() {
@@ -439,6 +323,7 @@ function closeOpenEditors() {
   if (taskFormOpen.value) closeTaskForm()
   if (incidentFormOpen.value) closeIncidentForm()
   if (userFormOpen.value) closeUserForm()
+  if (copilotEditorMode.value !== 'closed') closeCopilotEditor()
 }
 
 function closeEditorOnFocusOut(event, closeFn) {
@@ -463,6 +348,35 @@ function openPriorityItem(item) {
   goToView(item.target)
 }
 
+function applyPageResult(key, result, pager) {
+  state[key] = Array.isArray(result?.items) ? result.items : []
+  listMeta[key].total = Number(result?.total || 0)
+  listMeta[key].pageCount = Number(result?.pageCount || 1)
+  if (result?.counts) listMeta[key].counts = result.counts
+  if (result?.options) listMeta[key].options = result.options
+  if (result?.page && pager.page !== result.page) pager.page = result.page
+}
+
+async function loadDashboard() {
+  state.dashboard = { ...emptyDashboard, ...(await api('/dashboard')) }
+}
+
+async function loadAssetPage() {
+  applyPageResult('assets', await api(buildListPath('assets', assetPager, assetFilters)), assetPager)
+}
+
+async function loadMiddlewarePage() {
+  applyPageResult('middleware', await api(buildListPath('middleware', middlewarePager, middlewareFilters)), middlewarePager)
+}
+
+async function loadTaskPage() {
+  applyPageResult('tasks', await api(buildListPath('tasks', taskPager)), taskPager)
+}
+
+async function loadIncidentPage() {
+  applyPageResult('incidents', await api(buildListPath('incidents', incidentPager)), incidentPager)
+}
+
 async function loadAll() {
   if (!auth.token) return
   loading.value = true
@@ -473,34 +387,33 @@ async function loadAll() {
     if (me.mustChangePassword) {
       return
     }
-    const [dashboard, assets, middleware, oncalls, tasks, incidents] = await Promise.all([
+    const [dashboard, assets, middleware, oncalls, tasks, incidents, userDirectory] = await Promise.all([
       api('/dashboard'),
-      api('/assets'),
-      api('/middleware'),
+      api(buildListPath('assets', assetPager, assetFilters)),
+      api(buildListPath('middleware', middlewarePager, middlewareFilters)),
       api('/oncall'),
-      api('/tasks'),
-      api('/incidents')
+      api(buildListPath('tasks', taskPager)),
+      api(buildListPath('incidents', incidentPager)),
+      api('/user-directory')
     ])
     state.dashboard = { ...emptyDashboard, ...dashboard }
-    state.assets = assets
-    state.middleware = middleware
+    applyPageResult('assets', assets, assetPager)
+    applyPageResult('middleware', middleware, middlewarePager)
     state.oncalls = oncalls
-    state.tasks = tasks
-    state.incidents = incidents
+    applyPageResult('tasks', tasks, taskPager)
+    applyPageResult('incidents', incidents, incidentPager)
+    state.userDirectory = userDirectory
     if ((me.roles || []).includes('super_admin')) {
-      try {
-        const [users, verification, copilotSettings] = await Promise.all([
-          api('/users'),
-          api('/security/credential-verification'),
-          api('/copilot/config')
-        ])
-        state.users = users
-        credentialVerification.hasPassword = Boolean(verification.hasPassword)
-        applyCopilotConfig(copilotSettings)
-      } catch {
-        state.users = []
-        credentialVerification.hasPassword = false
-      }
+      const [users, verification, modelProfiles, auditEvents] = await Promise.allSettled([
+        api('/users'),
+        api('/security/credential-verification'),
+        api('/copilot/configs'),
+        api('/audit-events?limit=100')
+      ])
+      state.users = users.status === 'fulfilled' ? users.value : []
+      credentialVerification.hasPassword = verification.status === 'fulfilled' && Boolean(verification.value.hasPassword)
+      state.auditEvents = auditEvents.status === 'fulfilled' ? auditEvents.value : []
+      copilotProfiles.value = modelProfiles.status === 'fulfilled' ? modelProfiles.value : []
     }
   } catch (err) {
     if (!auth.user) {
@@ -627,6 +540,9 @@ async function saveAsset() {
     }
     selectedAsset.value = item
     closeAssetForm()
+    await Promise.all([loadAssetPage(), loadDashboard()])
+    selectedAsset.value = state.assets.find(asset => asset.id === item.id) || item
+    notify(method === 'PUT' ? '资产修改已保存' : '资产已纳管')
   } catch (err) {
     error.value = `保存资产失败：${err.message}`
   }
@@ -701,6 +617,8 @@ async function deleteAsset(asset) {
       if (newAsset.id === asset.id) {
         closeAssetForm()
       }
+      await Promise.all([loadAssetPage(), loadDashboard()])
+      notify('资产已删除')
     } catch (err) {
       error.value = `删除资产失败：${err.message}`
     }
@@ -766,6 +684,9 @@ async function saveMiddleware() {
     }
     selectedMiddleware.value = item
     closeMiddlewareForm()
+    await Promise.all([loadMiddlewarePage(), loadDashboard()])
+    selectedMiddleware.value = state.middleware.find(entry => entry.id === item.id) || item
+    notify(method === 'PUT' ? '实例修改已保存' : '实例已创建')
   } catch (err) {
     error.value = `新增实例失败：${err.message}`
   }
@@ -831,6 +752,7 @@ async function deleteMiddleware(item) {
       if (newMiddleware.id === item.id) {
         closeMiddlewareForm()
       }
+      await Promise.all([loadMiddlewarePage(), loadDashboard()])
     } catch (err) {
       error.value = `删除实例失败：${err.message}`
     }
@@ -1001,9 +923,11 @@ async function saveTask() {
     return
   }
   try {
+	const assignee = state.userDirectory.find(user => user.id === Number(newTask.assigneeUserId))
+	const payload = { ...newTask, dueAt: toAPITimestamp(newTask.dueAt), assigneeUserId: newTask.assigneeUserId ? Number(newTask.assigneeUserId) : null, assignee: assignee?.displayName || newTask.assignee }
     const method = newTask.id ? 'PUT' : 'POST'
     const path = newTask.id ? `/tasks/${newTask.id}` : '/tasks'
-    const item = await api(path, { method, body: JSON.stringify(newTask) })
+    const item = await api(path, { method, body: JSON.stringify(payload) })
     const existingIndex = state.tasks.findIndex((entry) => entry.id === item.id)
     if (existingIndex >= 0) {
       state.tasks.splice(existingIndex, 1, item)
@@ -1012,6 +936,9 @@ async function saveTask() {
     }
     selectedTask.value = item
     closeTaskForm()
+    await Promise.all([loadTaskPage(), loadDashboard()])
+    selectedTask.value = state.tasks.find(entry => entry.id === item.id) || item
+    notify(method === 'PUT' ? '任务修改已保存' : '任务已创建')
   } catch (err) {
     error.value = `保存任务失败：${err.message}`
   }
@@ -1028,12 +955,12 @@ function closeTaskForm() {
 }
 
 function editTask(task) {
-  Object.assign(newTask, { ...task })
+  Object.assign(newTask, { ...task, assigneeUserId: task.assigneeUserId || '', dueAt: toDateTimeLocal(task.dueAt) })
   taskFormOpen.value = true
 }
 
 function resetTaskForm() {
-  Object.assign(newTask, { id: null, title: '', type: '任务', assignee: '', status: '待处理', dueAt: '', description: '' })
+  Object.assign(newTask, { id: null, title: '', type: '任务', assignee: '', assigneeUserId: '', status: '待处理', dueAt: '', description: '' })
 }
 
 async function deleteTask(task) {
@@ -1054,6 +981,8 @@ async function deleteTask(task) {
       if (newTask.id === task.id) {
         closeTaskForm()
       }
+      await Promise.all([loadTaskPage(), loadDashboard()])
+      notify('任务已删除')
     } catch (err) {
       error.value = `删除任务失败：${err.message}`
     }
@@ -1067,6 +996,9 @@ async function updateTaskStatus(task, status) {
   try {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     task.status = status
+    await Promise.all([loadTaskPage(), loadDashboard()])
+    selectedTask.value = state.tasks.find(entry => entry.id === task.id) || null
+    notify(`任务状态已更新为“${status}”`, 'info')
   } catch (err) {
     task.status = previous
     error.value = `更新任务状态失败：${err.message}`
@@ -1080,9 +1012,11 @@ async function saveIncident() {
     return
   }
   try {
+	const owner = state.userDirectory.find(user => user.id === Number(newIncident.ownerUserId))
+	const payload = { ...newIncident, startedAt: toAPITimestamp(newIncident.startedAt), recoveredAt: toAPITimestamp(newIncident.recoveredAt), ownerUserId: newIncident.ownerUserId ? Number(newIncident.ownerUserId) : null, owner: owner?.displayName || newIncident.owner }
     const method = newIncident.id ? 'PUT' : 'POST'
     const path = newIncident.id ? `/incidents/${newIncident.id}` : '/incidents'
-    const item = await api(path, { method, body: JSON.stringify(newIncident) })
+    const item = await api(path, { method, body: JSON.stringify(payload) })
     const existingIndex = state.incidents.findIndex((entry) => entry.id === item.id)
     if (existingIndex >= 0) {
       state.incidents.splice(existingIndex, 1, item)
@@ -1091,6 +1025,9 @@ async function saveIncident() {
     }
     selectedIncident.value = item
     closeIncidentForm()
+    await Promise.all([loadIncidentPage(), loadDashboard()])
+    selectedIncident.value = state.incidents.find(entry => entry.id === item.id) || item
+    notify(method === 'PUT' ? '事件修改已保存' : '事件已创建')
   } catch (err) {
     error.value = `保存事件失败：${err.message}`
   }
@@ -1107,12 +1044,17 @@ function closeIncidentForm() {
 }
 
 function editIncident(incident) {
-  Object.assign(newIncident, { ...incident })
+  Object.assign(newIncident, {
+    ...incident,
+    ownerUserId: incident.ownerUserId || '',
+    startedAt: toDateTimeLocal(incident.startedAt),
+    recoveredAt: toDateTimeLocal(incident.recoveredAt)
+  })
   incidentFormOpen.value = true
 }
 
 function resetIncidentForm() {
-  Object.assign(newIncident, { id: null, title: '', level: 'P3', status: '新建', owner: '', business: '', startedAt: '', recoveredAt: '', summary: '' })
+  Object.assign(newIncident, { id: null, title: '', level: 'P3', status: '新建', owner: '', ownerUserId: '', business: '', startedAt: '', recoveredAt: '', summary: '' })
 }
 
 async function deleteIncident(incident) {
@@ -1133,6 +1075,8 @@ async function deleteIncident(incident) {
       if (newIncident.id === incident.id) {
         closeIncidentForm()
       }
+      await Promise.all([loadIncidentPage(), loadDashboard()])
+      notify('事件已删除')
     } catch (err) {
       error.value = `删除事件失败：${err.message}`
     }
@@ -1146,46 +1090,94 @@ async function updateIncidentStatus(incident, status) {
   try {
     await api(`/incidents/${incident.id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     incident.status = status
+    await Promise.all([loadIncidentPage(), loadDashboard()])
+    selectedIncident.value = state.incidents.find(entry => entry.id === incident.id) || null
+    notify(`事件状态已更新为“${status}”`, 'info')
   } catch (err) {
     incident.status = previous
     error.value = `更新事件状态失败：${err.message}`
   }
 }
 
-function selectCopilotProvider(provider) {
-  copilotConfig.provider = provider.id
-  copilotConfig.endpoint = provider.endpoint
-  if (provider.id === 'local') {
-    copilotConfig.localEndpoint = provider.endpoint
-    copilotConfig.localModel = provider.models[0]
-  } else {
-    copilotConfig.model = provider.models[0]
-  }
+function resetCopilotProfile(provider = copilotProviders[1]) {
+  Object.assign(copilotConfig, {
+    id: null,
+    name: '',
+    provider: provider.id,
+    endpoint: provider.id === 'local' ? '' : provider.endpoint,
+    model: provider.id === 'local' ? '' : provider.models[0],
+    apiKey: '',
+    hasApiKey: false,
+    localEndpoint: provider.id === 'local' ? provider.endpoint : '',
+    localModel: provider.id === 'local' ? provider.models[0] : '',
+    temperature: '0.2',
+    maxTokens: '2048',
+    enableAssetContext: true,
+    enableIncidentContext: true,
+    enableTaskContext: true,
+    enableOncallContext: true,
+    auditEnabled: true,
+    isActive: false
+  })
   resetCopilotConnection()
 }
 
 function applyCopilotConfig(config) {
   Object.assign(copilotConfig, {
+    id: config.id,
+    name: config.name || '',
     provider: config.provider || 'openai',
-    endpoint: config.endpoint || 'https://api.openai.com/v1',
-    model: config.model || 'gpt-4.1',
+    endpoint: config.endpoint || '',
+    model: config.model || '',
     apiKey: '',
     hasApiKey: Boolean(config.hasApiKey),
-    localEndpoint: config.localEndpoint || 'http://host.docker.internal:11434',
-    localModel: config.localModel || 'qwen2.5:7b',
+    localEndpoint: config.localEndpoint || '',
+    localModel: config.localModel || '',
     temperature: config.temperature || '0.2',
-    maxTokens: config.maxTokens || '4096',
+    maxTokens: config.maxTokens || '2048',
     enableAssetContext: Boolean(config.enableAssetContext),
     enableIncidentContext: Boolean(config.enableIncidentContext),
     enableTaskContext: Boolean(config.enableTaskContext),
     enableOncallContext: Boolean(config.enableOncallContext),
-    auditEnabled: Boolean(config.auditEnabled)
+    auditEnabled: true,
+    isActive: Boolean(config.isActive)
   })
   resetCopilotConnection()
 }
 
+function openCopilotCreate(provider = copilotProviders[1]) {
+  resetCopilotProfile(provider)
+  copilotEditorMode.value = 'create'
+}
+
+function editCopilotProfile(profile) {
+  applyCopilotConfig(profile)
+  copilotEditorMode.value = 'edit'
+}
+
+function closeCopilotEditor() {
+  copilotEditorMode.value = 'closed'
+  resetCopilotConnection()
+}
+
+function selectCopilotProvider(provider) {
+  if (copilotEditorMode.value === 'closed') {
+    openCopilotCreate(provider)
+    return
+  }
+  const currentName = copilotConfig.name
+  const currentID = copilotConfig.id
+  const currentActive = copilotConfig.isActive
+  resetCopilotProfile(provider)
+  Object.assign(copilotConfig, { name: currentName, id: currentID, isActive: currentActive })
+}
+
 function selectCopilotProviderByID() {
   selectCopilotProvider(selectedCopilotProvider.value)
+}
+
+async function loadCopilotProfiles() {
+  copilotProfiles.value = await api('/copilot/configs')
 }
 
 function resetCopilotConnection() {
@@ -1217,7 +1209,12 @@ async function testCopilotConnection() {
       latencyMs: result.latencyMs,
       statusCode: result.statusCode || null
     })
-    error.value = result.ok ? 'AI Copilot 连接测试通过' : `AI Copilot 连接测试未通过：${result.message}`
+    if (result.ok) {
+      error.value = ''
+      notify('AI Copilot 连接测试通过')
+    } else {
+      error.value = `AI Copilot 连接测试未通过：${result.message}`
+    }
   } catch (err) {
     Object.assign(copilotConnection, {
       testing: false,
@@ -1230,21 +1227,65 @@ async function testCopilotConnection() {
   }
 }
 
+async function testSavedCopilotProfile(profile) {
+  if (!canManageUsers.value) return
+  try {
+    const result = await api(`/copilot/configs/${profile.id}/test-connection`, { method: 'POST' })
+    if (result.ok) {
+      error.value = ''
+      notify(`${profile.name} 连接测试通过`)
+    } else {
+      error.value = `${profile.name} 连接测试未通过：${result.message}`
+    }
+  } catch (err) {
+    error.value = `${profile.name} 连接测试失败：${err.message}`
+  }
+}
+
 async function saveCopilotConfig() {
   if (!canManageUsers.value) {
     error.value = '只有超级管理员可以保存 AI Copilot 配置'
     return
   }
   try {
-    const saved = await api('/copilot/config', {
-      method: 'PUT',
+    const editing = copilotEditorMode.value === 'edit' && copilotConfig.id
+    const saved = await api(editing ? `/copilot/configs/${copilotConfig.id}` : '/copilot/configs', {
+      method: editing ? 'PUT' : 'POST',
       body: JSON.stringify(copilotConfig)
     })
-    applyCopilotConfig(saved)
-    error.value = saved.hasApiKey ? 'AI Copilot 配置已保存，API Key 已由后端加密托管。' : 'AI Copilot 配置已保存；当前未配置托管 API Key。'
+    await loadCopilotProfiles()
+    closeCopilotEditor()
+    error.value = ''
+    notify(saved.hasApiKey ? '模型配置已保存，API Key 已加密托管' : '模型配置已保存')
   } catch (err) {
-    error.value = `AI Copilot 配置保存失败：${err.message}`
+    error.value = `模型配置保存失败：${err.message}`
   }
+}
+
+async function activateCopilotProfile(profile) {
+  try {
+    await api(`/copilot/configs/${profile.id}/activate`, { method: 'POST' })
+    await loadCopilotProfiles()
+    error.value = ''
+    notify(`已启用模型配置“${profile.name}”`)
+  } catch (err) {
+    error.value = `启用模型配置失败：${err.message}`
+  }
+}
+
+async function deleteCopilotProfile(profile) {
+  if (profile.isActive) return
+  await requestConfirm({
+    title: '删除模型配置',
+    message: '删除后无法恢复，已托管的 API Key 也会一并清理。',
+    target: `${profile.name} · ${profile.model || profile.localModel}`,
+    confirmLabel: '确认删除配置'
+  }, async () => {
+    await api(`/copilot/configs/${profile.id}`, { method: 'DELETE' })
+    if (copilotConfig.id === profile.id) closeCopilotEditor()
+    await loadCopilotProfiles()
+    notify(`模型配置“${profile.name}”已删除`, 'info')
+  })
 }
 
 async function saveUser() {
@@ -1282,6 +1323,7 @@ async function saveUser() {
       auth.user = { ...auth.user, username: item.username, displayName: item.displayName, roles: [...item.roles], mustChangePassword: item.mustChangePassword }
     }
     closeUserForm()
+    notify(method === 'PUT' ? '用户修改已保存' : '用户已创建')
   } catch (err) {
     error.value = `保存用户失败：${err.message}`
   }
@@ -1340,6 +1382,7 @@ async function deleteUser(user) {
       if (newUser.id === user.id) {
         closeUserForm()
       }
+      notify('用户已删除')
     } catch (err) {
       error.value = `删除用户失败：${err.message}`
     }
@@ -1378,6 +1421,15 @@ async function saveCredentialVerificationPassword() {
   }
 }
 
+async function loadAuditEvents() {
+  if (!canManageUsers.value) return
+  try {
+    state.auditEvents = await api('/audit-events?limit=100')
+  } catch (err) {
+    error.value = `加载操作审计失败：${err.message}`
+  }
+}
+
 function chooseTask(task) {
   selectedTask.value = task
 }
@@ -1394,92 +1446,51 @@ function hideIncidentDetail() {
   selectedIncident.value = null
 }
 
-function hideCopilot() {
-  copilotOpen.value = false
-  copilotExpanded.value = false
-}
+const { schedule: reloadList } = useDeferredLoader(
+  () => hasAppAccess.value,
+  (message) => { error.value = message }
+)
 
-function toggleCopilotSize() {
-  copilotExpanded.value = !copilotExpanded.value
-}
-
-function topItems(items, count = 3) {
-  return items.slice(0, count).map((item) => item.title || item.assetNo || item.name || item.primary).filter(Boolean)
-}
-
-function itemMatchesQuestion(question, values) {
-  const haystack = values.join(' ').toLowerCase()
-  const query = question.toLowerCase()
-  return haystack.includes(query) || values.some((value) => {
-    const text = String(value || '').trim().toLowerCase()
-    return text.length >= 2 && query.includes(text)
-  })
-}
-
-function answerCopilot(question) {
-  const query = question.trim().toLowerCase()
-  const p1Incidents = activeIncidents.value.filter((item) => item.level === 'P1')
-  const pendingTasks = displayTasks.value.filter((item) => ['待处理', '处理中', '待确认'].includes(item.status))
-  const oncall = todayOncall.value
-  const matchedAssets = displayAssets.value.filter((asset) => {
-    return query && itemMatchesQuestion(query, [asset.assetNo, asset.business, asset.ipv4, asset.ipv6, asset.owner, asset.deploymentInfo, asset.networkZone])
-  })
-  const matchedMiddleware = displayMiddleware.value.filter((item) => {
-    return query && itemMatchesQuestion(query, [item.name, item.kind, item.business, item.endpoint, item.networkZone, associatedAssetName(item)])
-  })
-
-  if (query.includes('p1') || query.includes('事件') || query.includes('异常')) {
-    const names = topItems(p1Incidents)
-    return p1Incidents.length
-      ? `当前有 ${p1Incidents.length} 个 P1 活跃事件：${names.join('、')}。建议先确认影响业务、关联资产和值班负责人，再推进恢复与关闭流程。`
-      : `当前没有 P1 活跃事件。仍有 ${activeIncidents.value.length} 个未关闭事件，建议继续关注处理中和已恢复未关闭的记录。`
+watch(
+  () => [assetFilters.keyword, assetFilters.type, assetFilters.environment, assetFilters.business, assetFilters.networkZone],
+  () => {
+    if (assetPager.page !== 1) assetPager.page = 1
+    else reloadList(loadAssetPage, '资产列表', 250)
   }
-
-  if (query.includes('值班') || query.includes('主值') || query.includes('备值')) {
-    return `今日主值：${oncall.primary || '未配置'}，备值：${oncall.backup || '未配置'}，规则：${oncall.ruleType === 'weekly' ? '按周轮换' : '按天轮换'}。如发生 P1/P2，建议优先拉起主值并同步备值。`
+)
+watch(
+  () => [middlewareFilters.keyword, middlewareFilters.kind, middlewareFilters.environment, middlewareFilters.business, middlewareFilters.networkZone, middlewareFilters.status],
+  () => {
+    if (middlewarePager.page !== 1) middlewarePager.page = 1
+    else reloadList(loadMiddlewarePage, '实例列表', 250)
   }
-
-  if (query.includes('任务') || query.includes('待办')) {
-    const names = topItems(pendingTasks)
-    return `当前未关闭任务 ${pendingTasks.length} 个，其中处理中 ${taskStatusCounts.value['处理中'] || 0} 个、待确认 ${taskStatusCounts.value['待确认'] || 0} 个。优先关注：${names.join('、') || '暂无高优先任务'}。`
-  }
-
-  if (query.includes('资产') || query.includes('cmdb') || matchedAssets.length || matchedMiddleware.length) {
-    return `查询到资产 ${matchedAssets.length} 条、实例 ${matchedMiddleware.length} 条。${matchedAssets.length ? `资产示例：${topItems(matchedAssets).join('、')}。` : ''}${matchedMiddleware.length ? `实例示例：${topItems(matchedMiddleware).join('、')}。` : ''}建议结合环境、网络区域和所属业务判断影响范围。`
-  }
-
-  if (query.includes('凭据') || query.includes('密码') || query.includes('权限')) {
-    return canManageCredentials.value
-      ? '当前账号具备敏感凭据管理权限。资产和实例密码默认加密存储，查看时仍需输入当前登录密码二次校验。'
-      : '当前账号无敏感凭据查看权限。运维工程师可维护资产和实例基础信息，但账号密码默认不可见。'
-  }
-
-  return `当前健康概览：纳管资产 ${dashboardAssetCount.value} 个，活跃事件 ${activeIncidents.value.length} 个，未关闭任务 ${pendingTasks.length} 个，今日值班 ${oncall.primary || '未配置主值'} / ${oncall.backup || '未配置备值'}。建议先看活跃事件影响，再跟进任务闭环。`
-}
-
-function askCopilot() {
-  const question = copilotQuestion.value.trim()
-  if (!question) return
-  copilotMessages.value.push({ role: 'user', text: question })
-  copilotMessages.value.push({ role: 'ai', text: answerCopilot(question) })
-  copilotQuestion.value = ''
-}
-
-watch([activeView, permissionTab], () => {
-  const nextHash = routeHash()
-  if (window.location.hash !== nextHash) {
-    window.history.replaceState(null, '', nextHash)
-  }
+)
+watch(() => assetPager.page, () => reloadList(loadAssetPage, '资产列表'))
+watch(() => middlewarePager.page, () => reloadList(loadMiddlewarePage, '实例列表'))
+watch(() => taskPager.page, () => reloadList(loadTaskPage, '任务列表'))
+watch(() => incidentPager.page, () => reloadList(loadIncidentPage, '事件列表'))
+watch(() => assetPager.pageSize, () => {
+  if (assetPager.page !== 1) assetPager.page = 1
+  else reloadList(loadAssetPage, '资产列表')
+})
+watch(() => middlewarePager.pageSize, () => {
+  if (middlewarePager.page !== 1) middlewarePager.page = 1
+  else reloadList(loadMiddlewarePage, '实例列表')
+})
+watch(() => taskPager.pageSize, () => {
+  if (taskPager.page !== 1) taskPager.page = 1
+  else reloadList(loadTaskPage, '任务列表')
+})
+watch(() => incidentPager.pageSize, () => {
+  if (incidentPager.page !== 1) incidentPager.page = 1
+  else reloadList(loadIncidentPage, '事件列表')
 })
 
 onMounted(() => {
-  syncRouteFromHash()
-  window.addEventListener('hashchange', syncRouteFromHash)
   loadAll()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('hashchange', syncRouteFromHash)
   setSessionExpiredHandler(null)
 })
 </script>
@@ -1569,7 +1580,7 @@ onUnmounted(() => {
           :paged-assets="pagedAssets"
           :selected-asset="selectedAsset"
           :spec="assetSpec"
-          :total="filteredAssets.length"
+          :total="listMeta.assets.total"
           @choose="chooseAsset"
           @close-form="closeAssetForm"
           @delete="deleteAsset"
@@ -1606,7 +1617,7 @@ onUnmounted(() => {
           :page-size="middlewarePager.pageSize"
           :paged-items="pagedMiddleware"
           :selected-item="selectedMiddleware"
-          :total="filteredMiddleware.length"
+          :total="listMeta.middleware.total"
           @choose="chooseMiddleware"
           @close-form="closeMiddlewareForm"
           @delete="deleteMiddleware"
@@ -1634,7 +1645,7 @@ onUnmounted(() => {
 
         <TaskView
           v-if="activeView === 'tasks'"
-          :active-task-count="activeTasks.length"
+          :active-task-count="dashboardTaskCount"
           :current-task="currentTask"
           :form="newTask"
           :form-open="taskFormOpen"
@@ -1644,7 +1655,8 @@ onUnmounted(() => {
           :page-size="taskPager.pageSize"
           :paged-tasks="pagedTasks"
           :status-counts="taskStatusCounts"
-          :total="displayTasks.length"
+          :total="listMeta.tasks.total"
+          :users="state.userDirectory"
           @choose="chooseTask"
           @close-form="closeTaskForm"
           @delete="deleteTask"
@@ -1659,7 +1671,7 @@ onUnmounted(() => {
 
         <IncidentView
           v-if="activeView === 'incidents'"
-          :active-incident-count="activeIncidents.length"
+          :active-incident-count="dashboardIncidentCount"
           :current-incident="currentIncident"
           :form="newIncident"
           :form-open="incidentFormOpen"
@@ -1669,7 +1681,8 @@ onUnmounted(() => {
           :page-count="incidentPageCount"
           :page-size="incidentPager.pageSize"
           :paged-incidents="pagedIncidents"
-          :total="displayIncidents.length"
+          :total="listMeta.incidents.total"
+          :users="state.userDirectory"
           @choose="chooseIncident"
           @close-form="closeIncidentForm"
           @delete="deleteIncident"
@@ -1704,17 +1717,33 @@ onUnmounted(() => {
           @save-user="saveUser"
         />
 
+        <AuditView
+          v-if="activeView === 'audit'"
+          :can-manage="canManageUsers"
+          :events="state.auditEvents"
+          @refresh="loadAuditEvents"
+        />
+
         <CopilotSettingsView
           v-if="activeView === 'copilot-settings'"
           :can-manage="canManageUsers"
           :config="copilotConfig"
           :connection="copilotConnection"
+          :editor-open="copilotEditorMode !== 'closed'"
+          :editor-mode="copilotEditorMode"
+          :profiles="copilotProfiles"
           :providers="copilotProviders"
           :selected-provider="selectedCopilotProvider"
+          @activate="activateCopilotProfile"
+          @close-editor="closeCopilotEditor"
+          @delete="deleteCopilotProfile"
+          @edit="editCopilotProfile"
+          @open-create="openCopilotCreate()"
           @save="saveCopilotConfig"
           @select-provider="selectCopilotProvider"
           @select-provider-id="selectCopilotProviderByID"
           @test="testCopilotConnection"
+          @test-profile="testSavedCopilotProfile"
         />
 
       </template>
@@ -1726,10 +1755,12 @@ onUnmounted(() => {
       :open="copilotOpen"
       :expanded="copilotExpanded"
       :messages="copilotMessages"
+      :busy="copilotBusy"
       @hide="hideCopilot"
       @toggle-size="toggleCopilotSize"
       @send="askCopilot"
     />
+    <ToastStack :messages="toastMessages" @dismiss="dismissToast" />
     <ConfirmDialog
       :open="confirmState.open"
       :title="confirmState.title"

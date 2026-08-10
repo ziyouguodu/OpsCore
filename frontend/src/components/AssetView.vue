@@ -67,19 +67,19 @@ function closeEditorOnFocusOut(event) {
       <section>
         <div class="query-card">
           <div class="query-main">
-            <input v-model="filters.keyword" placeholder="搜索资产编号、业务、IP、负责人、部署信息" @input="resetPage" />
-            <select v-model="filters.type" @change="resetPage"><option value="">全部类型</option><option>物理机</option><option>虚拟机</option></select>
-            <select v-model="filters.environment" @change="resetPage"><option value="">全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
+            <input v-model="filters.keyword" aria-label="资产关键词" placeholder="搜索资产编号、业务、IP、负责人、部署信息" @input="resetPage" />
+            <select v-model="filters.type" aria-label="资产类型" @change="resetPage"><option value="">全部类型</option><option>物理机</option><option>虚拟机</option></select>
+            <select v-model="filters.environment" aria-label="资产环境" @change="resetPage"><option value="">全部环境</option><option>生产</option><option>仿真</option><option>研发</option></select>
             <button class="primary" @click="resetPage">查询</button>
             <button @click="$emit('reset-filters')">重置</button>
             <button class="link" @click="filters.advanced = !filters.advanced">{{ filters.advanced ? '收起高级搜索' : '高级搜索' }}</button>
           </div>
           <div v-if="filters.advanced" class="query-extra">
-            <select v-model="filters.business" @change="resetPage">
+            <select v-model="filters.business" aria-label="所属业务" @change="resetPage">
               <option value="">全部所属业务</option>
               <option v-for="item in businesses" :key="item">{{ item }}</option>
             </select>
-            <select v-model="filters.networkZone" @change="resetPage">
+            <select v-model="filters.networkZone" aria-label="网络区域" @change="resetPage">
               <option value="">全部网络区域</option>
               <option v-for="item in networkZones" :key="item">{{ item }}</option>
             </select>
@@ -89,36 +89,36 @@ function closeEditorOnFocusOut(event) {
         <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
           <h3>{{ form.id ? '编辑资产' : '新增资产' }}</h3>
           <div class="form-grid cmdb-form">
-            <input v-model="form.assetNo" placeholder="资产编号（留空自动生成）" />
-            <select v-model="form.type"><option>物理机</option><option>虚拟机</option></select>
-            <input v-model="form.vendor" placeholder="厂商" />
-            <input v-model="form.cpuArch" placeholder="CPU 架构" />
-            <input v-model="form.sn" placeholder="SN" />
-            <input v-model="form.location" placeholder="物理位置" />
-            <input v-model="form.business" placeholder="所属业务" />
-            <input v-model="form.ipv4" placeholder="IPv4" />
-            <input v-model="form.ipv6" placeholder="IPv6" />
-            <select v-model="form.environment"><option>生产</option><option>仿真</option><option>研发</option></select>
-            <input v-model="form.os" placeholder="操作系统" />
-            <input v-model="form.hostname" placeholder="主机名" />
-            <input v-model="form.networkZone" placeholder="网络区域" />
-            <input v-model="form.cpu" placeholder="CPU 规格" />
-            <input v-model="form.memory" placeholder="内存规格" />
-            <input v-model="form.disk" placeholder="磁盘规格" />
-            <input v-model="form.deploymentInfo" placeholder="部署信息" />
-            <input v-model="form.owner" placeholder="负责人" />
-            <input v-model="form.hostMachine" placeholder="所在宿主机（虚拟机可填）" />
-            <select v-model="form.status"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <input v-model="form.assetNo" aria-label="资产编号" placeholder="资产编号（留空自动生成）" />
+            <select v-model="form.type" aria-label="资产类型"><option>物理机</option><option>虚拟机</option></select>
+            <input v-model="form.vendor" aria-label="厂商" placeholder="厂商" />
+            <input v-model="form.cpuArch" aria-label="CPU 架构" placeholder="CPU 架构" />
+            <input v-model="form.sn" aria-label="SN" placeholder="SN" />
+            <input v-model="form.location" aria-label="物理位置" placeholder="物理位置" />
+            <input v-model="form.business" aria-label="所属业务" placeholder="所属业务" />
+            <input v-model="form.ipv4" aria-label="IPv4" placeholder="IPv4" />
+            <input v-model="form.ipv6" aria-label="IPv6" placeholder="IPv6" />
+            <select v-model="form.environment" aria-label="环境"><option>生产</option><option>仿真</option><option>研发</option></select>
+            <input v-model="form.os" aria-label="操作系统" placeholder="操作系统" />
+            <input v-model="form.hostname" aria-label="主机名" placeholder="主机名" />
+            <input v-model="form.networkZone" aria-label="网络区域" placeholder="网络区域" />
+            <input v-model="form.cpu" aria-label="CPU 规格" placeholder="CPU 规格" />
+            <input v-model="form.memory" aria-label="内存规格" placeholder="内存规格" />
+            <input v-model="form.disk" aria-label="磁盘规格" placeholder="磁盘规格" />
+            <input v-model="form.deploymentInfo" aria-label="部署信息" placeholder="部署信息" />
+            <input v-model="form.owner" aria-label="负责人" placeholder="负责人" />
+            <input v-model="form.hostMachine" aria-label="所在宿主机" placeholder="所在宿主机（虚拟机可填）" />
+            <select v-model="form.status" aria-label="资产状态"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
             <section v-if="canManageCredentials" class="credential-inline form-wide">
               <div>
                 <strong>登录信息</strong>
                 <span>保存后加密存储，列表不展示；查看密码需统一二次校验。</span>
               </div>
               <div class="form-grid credential-form-inline">
-                <input v-model="formCredential.loginUrl" placeholder="登录地址（可选）" />
-                <input v-model="formCredential.username" placeholder="登录用户名" />
-                <input v-model="formCredential.secret" placeholder="登录密码 / 密钥" type="password" />
-                <input v-model="formCredential.notes" placeholder="备注" />
+                <input v-model="formCredential.loginUrl" aria-label="登录地址" placeholder="登录地址（可选）" />
+                <input v-model="formCredential.username" aria-label="登录用户名" placeholder="登录用户名" />
+                <input v-model="formCredential.secret" aria-label="登录密码或密钥" placeholder="登录密码 / 密钥" type="password" />
+                <input v-model="formCredential.notes" aria-label="登录信息备注" placeholder="备注" />
               </div>
             </section>
             <button class="primary" :disabled="!canWrite" @click="$emit('save')">{{ form.id ? '保存修改' : '保存资产' }}</button>
@@ -130,7 +130,7 @@ function closeEditorOnFocusOut(event) {
           <table>
             <thead><tr><th>资产编号</th><th>类型</th><th>环境</th><th>网络区域</th><th>IP</th><th>配置规格</th><th>所属业务</th><th>部署信息</th><th>状态</th><th>负责人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="asset in pagedAssets" :key="asset.id" :class="{ selected: selectedAsset?.id === asset.id }" class="clickable-row" tabindex="0" @click="$emit('choose', asset)" @keyup.enter="$emit('choose', asset)">
+              <tr v-for="asset in pagedAssets" :key="asset.id" :class="{ selected: selectedAsset?.id === asset.id }" class="clickable-row" tabindex="0" @click="$emit('choose', asset)" @keyup.enter="$emit('choose', asset)" @keyup.space.prevent="$emit('choose', asset)">
                 <td>{{ asset.assetNo }}</td><td>{{ asset.type }}</td><td>{{ asset.environment }}</td><td>{{ asset.networkZone }}</td><td>{{ asset.ipv4 || asset.ipv6 }}</td><td>{{ spec(asset) }}</td><td>{{ asset.business }}</td><td>{{ asset.deploymentInfo || '-' }}</td><td>{{ asset.status }}</td><td>{{ asset.owner || '-' }}</td>
                 <td class="row-actions"><button class="link" @click.stop="$emit('choose', asset)">详情</button><button class="link" :disabled="!canWrite || isSample(asset)" @click.stop="$emit('edit', asset)">编辑</button><button class="link danger-text" :disabled="!canDelete(asset)" @click.stop="$emit('delete', asset)">删除</button></td>
               </tr>
@@ -175,14 +175,14 @@ function closeEditorOnFocusOut(event) {
               <span v-else class="pill">未保存密钥</span>
             </div>
             <div class="form-grid credential-form">
-              <input v-model="credential.loginUrl" placeholder="登录地址" />
-              <input v-model="credential.username" placeholder="账号" />
-              <input v-model="credential.secret" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
-              <input v-model="credential.notes" placeholder="备注" />
+              <input v-model="credential.loginUrl" aria-label="登录地址" placeholder="登录地址" />
+              <input v-model="credential.username" aria-label="登录账号" placeholder="账号" />
+              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
+              <input v-model="credential.notes" aria-label="登录信息备注" placeholder="备注" />
               <button class="primary" @click="$emit('save-credential')">保存登录信息</button>
             </div>
             <div class="credential-reveal">
-              <input v-model="credentialReveal.password" placeholder="输入统一二次校验密码查看密码/密钥" type="password" @keyup.enter="$emit('reveal-credential')" />
+              <input v-model="credentialReveal.password" aria-label="统一二次校验密码" placeholder="输入统一二次校验密码查看密码/密钥" type="password" @keyup.enter="$emit('reveal-credential')" />
               <button @click="$emit('reveal-credential')">二次校验查看</button>
               <span v-if="credentialReveal.revealed" class="pill success">已校验</span>
             </div>

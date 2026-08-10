@@ -1,5 +1,31 @@
 # WORKLOG.md
 
+## 2026-07-14 - README 一期技术架构图
+
+- 在 README“技术栈”标题下增加 GitHub Mermaid 一期技术架构图，采用 OpsCore 平台边界和纵向数据链路表达。
+- 架构图覆盖 Nginx 统一接入、Vue 3 前端体验、Go REST API、认证与安全、核心业务、平台治理、AI Copilot、pgx 数据访问和 PostgreSQL 持久化。
+- 云端模型、本地模型和 AES-GCM 环境变量密钥作为平台外部依赖展示；Docker Compose 与 Kubernetes 等部署方式继续由部署章节说明，不混入核心逻辑架构。
+
+## 2026-07-11 - 全栈架构复审、状态流一致性与可访问交互
+
+- 将后端超大持久化接口拆成健康、认证、用户、资产、实例、凭据安全、Copilot、值班、任务、事件和审计等领域接口，并迁移到独立 `persistence.go`。
+- 将任务/事件 API 处理器和 PostgreSQL 持久化分别拆到 `api/work_items.go`、`store/work_items.go`；将凭据二次校验、资产凭据、实例凭据和旧明文迁移集中到 `store/credentials.go`。
+- 新建任务强制从“待处理”开始，新建事件强制从“新建”开始；新增 API 回归测试和 Smoke 检查，禁止通过创建接口跳过闭环流程。
+- 新增 `workflow-status.js`，任务/事件详情只展示当前状态与合法下一状态；内容编辑表单不再承担状态跳转，避免用户提交后才收到冲突错误。
+- 新增 `useDashboardViewModel.js`，把首页指标、状态分布和优先事项编排从 `App.vue` 抽离；`App.vue` 从 1778 行降至 1674 行。
+- 资产、实例、任务、事件和用户工作区补齐关键输入控件的可访问名称；四类可点击表格行同时支持 Enter 与 Space 键打开详情。
+- 敏感凭据查看不再在统一校验密码缺失时回退账号登录密码；权限页明确显示“未配置，禁止查看明文凭据”，Smoke 会先配置统一校验密码再执行受控查看。
+- 真实桌面/移动截图巡检后，将首页空数据优先级面板改为按内容高度布局，避免被右侧响应流程拉出大块无效留白。
+- E2E 清理不再静默忽略删除失败；临时用户或业务数据若因关系约束未清理，测试会明确失败，避免巡检账号长期污染本地环境。
+- 最终验证：
+  - `npm run lint`、27 项前端单元/结构测试和 Vite 生产构建通过。
+  - `go test ./...`、`go test -race ./...` 与 `go vet ./...` 全部通过。
+  - 最新前后端镜像已重新构建，PostgreSQL、后端和前端三容器均为 healthy；健康接口返回数据库与服务均为 `ok`。
+  - API Smoke 全流程通过，覆盖 RBAC、统一凭据校验、服务端分页、任务/事件初始状态与并发流转、值班规则和审计记录。
+  - Chromium E2E 6/6 通过，覆盖登录、移动导航、滚动恢复、一期页面逐页交互、角色权限及桌面/移动视觉截图。
+  - 最终截图保存在 `output/playwright/01-login-desktop.png` 至 `11-navigation-mobile.png`；检查未发现页面级横向溢出、表格横线错位、控件重叠或控制台 error/warning。
+  - E2E 完成后数据库中 `duty-audit-*`、`ui-ops-*`、`smoke_ops_*` 临时用户计数为 0。
+
 ## 2026-06-29 - 前端组件化、实时指标与全量交互回归
 
 - 将首页、资产、实例、值班、任务、事件、权限、AI Copilot 配置、登录/首次密码初始化、侧栏、顶栏、分页和确认弹窗从 `App.vue` 拆为聚焦组件；`App.vue` 只保留全局状态和 API 编排。
@@ -526,3 +552,38 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - 桌面视觉复验发现无值班人员时“值班均衡度”错误显示 100%；新增 `calculateDutyBalance` 纯逻辑及回归测试，无有效样本时统一显示 `--`。
 - 最终验证结果：前端单元测试 16/16、生产构建、Chromium E2E 5/5、后端 `go test -count=1 ./...`、`go vet ./...`、扩展 API Smoke、迁移版本与字段检查、Nginx 安全响应头、`git diff --check` 和 Docker Compose 三容器健康检查均通过。
 - Playwright CLI 已完成 1280×720 值班页和 390×844 值班页/首页截图复验；移动端 `scrollWidth` 与 `clientWidth` 均为 390，控制台 error/warn 均为 0，未发现页面级横向溢出或组件重叠。
+
+## 2026-07-10 - 生产配置门禁、认证限流与操作审计
+
+- 新增 `OPSCORE_ENV` 和生产配置校验；生产模式拒绝占位数据库密码、JWT、AES-GCM 凭据密钥和管理员初始密码。
+- 新增 `deploy/docker-compose.production.yml`，远程/生产启动必须显式提供关键密钥；本地 Compose 继续保留开发默认值。
+- 登录和资产/实例凭据二次验证增加失败次数窗口与临时锁定，达到阈值返回 `429` 和 `Retry-After`，成功验证后清除失败状态。
+- 新增迁移 `004_audit_events`、审计存储层和 `GET /api/audit-events`；关键写操作、登录和凭据查看记录操作人、资源、结果、IP 与时间，不记录请求正文和敏感值。
+- 权限管理菜单启用“操作审计”页面，支持账号/动作/资源/IP 搜索与成功/失败筛选，仅超级管理员可查看。
+- 500、PostgreSQL、加密和 SQLSTATE 等底层错误改为服务端记录详细信息、客户端返回安全错误文案。
+- 验证结果：后端 `go test ./...`、`go vet ./...`、前端单元测试 16/16、生产构建、Docker Compose 重建、迁移版本检查、API Smoke 和 Chromium E2E 5/5 均通过；Smoke 产生的登录、凭据、用户、值班、任务和事件审计记录已在 PostgreSQL 验证。
+
+## 2026-07-10 - 服务端分页、关系化值班与真实 Copilot 代理
+
+- 资产、实例、任务和事件列表改为服务端分页、筛选、排序和聚合计数；页码超过有效范围时自动回落最后一页，迁移 `005`/`008` 增加组合索引和 `pg_trgm` 模糊搜索索引。
+- 迁移 `006_typed_dates_user_refs` 将任务、事件和值班日期改为 PostgreSQL `timestamptz`/`date`，负责人关联 `users` 外键；前端 `datetime-local` 统一转换为带时区 RFC3339，避免东八区时间偏移。
+- 负责人有关联用户 ID 时由后端读取当前显示名，用户改名会事务内同步任务、事件、值班和关系化值班名单；已进入值班名单的用户删除返回 409。
+- 迁移 `007_relational_duty_center` 新增团队、成员、模板、日历分配、当前值班、交接和升级策略关系表；JSON 只保留兼容快照，关系表与 revision 在同一事务提交并在启动时回填旧快照。
+- 新增 `POST /api/copilot/chat`：真实代理本地 Ollama、OpenAI 兼容、Anthropic 和 Gemini，按当前角色与配置开关注入非敏感上下文，复用 DNS/重定向/SSRF 防护，并限制单用户/IP 每分钟 20 次。
+- Copilot 问答审计改为强制安全边界；前端聊天加入加载、失败、自动聚焦、Escape 隐藏和可访问状态播报。
+- 新增全局语义 Toast、`useCopilotChat`、`useDeferredLoader`、`useToast` 和无依赖 `npm run lint`；静态检查禁止原生弹窗、持久化认证数据、调试日志和未经审计的 `v-html`。
+- 生产 Compose 覆盖取消 PostgreSQL 与后端宿主机端口映射，为后端启用只读文件系统和 `no-new-privileges`，并增加生产重启策略。
+- 健康检查增加 PostgreSQL readiness；生产内部反向代理启用可信客户端 IP 头，本地直连默认不信任，避免伪造 IP 绕过限流或污染审计。
+- Dashboard 聚合从多次串行计数收敛为单次汇总查询加两次分组查询；今日值班优先读取关系化当前值班，基础周排班只统计当前 ISO 周。
+
+## 2026-07-11 - AI Copilot 多模型配置与列表优先工作区
+
+- 按已确认的方案 A 将单条 Copilot 配置升级为多模型配置档案；新增迁移 `009_copilot_model_configs`、名称唯一索引和唯一当前启用部分索引。
+- 迁移会把既有 `system_settings.copilot_config` 直接转换为“默认模型配置”，保留原有 AES-GCM 密文，不接触或重新暴露 API Key 明文；真实 PostgreSQL 已验证兼容配置、模型、密钥状态和启用状态均保留。
+- 新增模型配置列表、创建、编辑、删除、连接测试和设为当前 API；首条配置自动启用，当前配置禁止删除，Hosted 模型启用前必须存在托管 Key。
+- 兼容 `GET/PUT /api/copilot/config` 的读取路径已映射到当前启用配置；`POST /api/copilot/chat` 继续只读取服务端当前启用项和当前用户授权上下文。
+- 前端改为列表优先：默认展示配置名称、厂商、模型、Endpoint、密钥状态和启用状态，新增/编辑后才展开表单；Local 与 Hosted 配置字段互斥显示。
+- 参数文案改为“回答随机性（Temperature）”和“最大输出长度（Max Tokens）”，默认值统一为 `0.2` 和 `2048`。
+- Playwright 移动端回归发现从桌面编辑态切换到 390px 后 Copilot 网格被表格最小内容宽度撑到 1092px；将工作区轨道约束为 `minmax(0, 1fr)` 并允许子项收缩后，页面级 `scrollWidth` 恢复为 390px。
+- 验证通过：前端单元测试 30/30、lint、Vite 生产构建、Go 全包测试、`go vet ./...`、API Smoke、Chromium E2E 6/6、Copilot 桌面编辑态和移动端视觉回归、Docker Compose 三容器健康检查。
+- 最终仅追加表格操作按钮暗色可读性样式后，单元测试、lint、生产构建和 Docker 镜像重建再次通过；外部执行额度恢复后已对当前最终镜像补跑完整 Chromium E2E，6/6 通过，并再次通过 Go 全包测试、`go vet ./...`、API Smoke、迁移唯一启用约束和三容器健康检查。

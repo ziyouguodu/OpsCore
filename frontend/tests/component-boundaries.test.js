@@ -6,6 +6,14 @@ const appSource = await readFile(new URL('../src/App.vue', import.meta.url), 'ut
 const dutySource = await readFile(new URL('../src/components/DutyManagementView.vue', import.meta.url), 'utf8')
 const stylesSource = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8')
 const dashboardSource = await readFile(new URL('../src/components/DashboardView.vue', import.meta.url), 'utf8')
+const copilotSource = await readFile(new URL('../src/components/CopilotWidget.vue', import.meta.url), 'utf8')
+const copilotComposableSource = await readFile(new URL('../src/composables/useCopilotChat.js', import.meta.url), 'utf8')
+const toastSource = await readFile(new URL('../src/components/ToastStack.vue', import.meta.url), 'utf8')
+const routeComposableSource = await readFile(new URL('../src/composables/useWorkspaceRoute.js', import.meta.url), 'utf8')
+let dashboardComposableSource = ''
+try {
+  dashboardComposableSource = await readFile(new URL('../src/composables/useDashboardViewModel.js', import.meta.url), 'utf8')
+} catch {}
 
 test('keeps permission and Copilot settings templates in focused components', () => {
   assert.match(appSource, /import PermissionsView from/)
@@ -56,4 +64,31 @@ test('keeps dashboard metric titles, values and supporting data on separate rows
   assert.equal((dashboardSource.match(/class="metric-copy"/g) || []).length, 4)
   assert.match(stylesSource, /\.metric-copy \{[^}]*display: grid/)
   assert.match(stylesSource, /\.metric-copy strong \{[^}]*display: block/)
+})
+
+test('keeps model-backed Copilot orchestration outside the application shell', () => {
+  assert.match(appSource, /useCopilotChat/)
+  assert.match(copilotComposableSource, /api\('\/copilot\/chat'/)
+  assert.doesNotMatch(appSource, /function answerCopilot/)
+  assert.match(copilotSource, /role="dialog"/)
+  assert.match(copilotSource, /aria-live="polite"/)
+})
+
+test('uses semantic toast feedback for completed mutations', () => {
+  assert.match(appSource, /<ToastStack/)
+  assert.match(toastSource, /aria-live="polite"/)
+  assert.match(toastSource, /role="status"/)
+})
+
+test('keeps hash routing and scroll restoration outside the application shell', () => {
+  assert.match(appSource, /useWorkspaceRoute/)
+  assert.match(routeComposableSource, /hashchange/)
+  assert.match(routeComposableSource, /window\.scrollTo/)
+  assert.doesNotMatch(appSource, /function parseRouteHash/)
+})
+
+test('keeps dashboard presentation orchestration outside the application shell', () => {
+  assert.match(appSource, /useDashboardViewModel/)
+  assert.match(dashboardComposableSource, /dashboardPriorityItems/)
+  assert.doesNotMatch(appSource, /const dashboardPriorityItems = computed/)
 })

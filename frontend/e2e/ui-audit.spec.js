@@ -129,9 +129,12 @@ async function cleanupData(request, token, created) {
     await apiJSON(request, 'put', '/duty-center', token, { revision: current.revision, data: created.dutyOriginal.data })
   }
   for (const item of [...created].reverse()) {
-    await request.delete(`/api${item.path}/${item.id}`, {
+    const response = await request.delete(`/api${item.path}/${item.id}`, {
       headers: { Authorization: `Bearer ${token}` }
-    }).catch(() => {})
+    })
+    if (!response.ok() && response.status() !== 404) {
+      throw new Error(`cleanup DELETE ${item.path}/${item.id} failed: ${response.status()} ${await response.text()}`)
+    }
   }
 }
 
@@ -365,17 +368,32 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
     await expect(page.getByRole('heading', { name: '菜单授权概览' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '资源权限矩阵' })).toBeVisible()
 
+    await goNav(page, '操作审计', '操作审计')
+    await expect(page.getByRole('region', { name: '操作审计工作区' })).toBeVisible()
+    await expect(page.locator('.audit-workspace table')).toBeVisible()
+
     await goNav(page, 'AI Copilot 配置', 'AI Copilot 配置')
     await expect(page.getByRole('region', { name: 'AI Copilot 配置工作区' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /已保存模型/ })).toBeVisible()
+    await expect(page.locator('.copilot-profile-editor')).toBeHidden()
     await page.getByRole('button', { name: /本地模型/ }).click()
     await expect(page.getByLabel('本地模型地址')).toBeVisible()
+    await expect(page.getByLabel('API Endpoint')).toBeHidden()
+    await page.getByRole('combobox', { name: '模型厂商' }).selectOption('openai')
+    await expect(page.getByLabel('API Endpoint')).toBeVisible()
+    await expect(page.getByLabel('本地模型地址')).toBeHidden()
+    await page.getByRole('combobox', { name: '模型厂商' }).selectOption('local')
     await page.getByRole('button', { name: '测试连接' }).click()
     await expect(page.locator('.top-actions .error, .connection-result').first()).toContainText(/AI Copilot|连接/)
 
     await page.getByTitle('打开 AI Copilot').click()
-    await expect(page.locator('.copilot')).toBeVisible()
-    await page.getByTitle('隐藏 Copilot').click()
-    await expect(page.getByTitle('打开 AI Copilot')).toBeVisible()
+    const copilotDialog = page.getByRole('dialog', { name: 'OpsCore AI Copilot' })
+    await expect(copilotDialog).toBeVisible()
+    await expect(copilotDialog.getByLabel('向 AI Copilot 提问')).toBeFocused()
+    await expect(copilotDialog.getByRole('button', { name: '发送' })).toBeDisabled()
+    await copilotDialog.press('Escape')
+    await expect(copilotDialog).toBeHidden()
+    await expect(page.getByTitle('打开 AI Copilot')).toBeFocused()
 
     expect(pageErrors).toEqual([])
   } finally {
@@ -405,9 +423,8 @@ test('enforces ops engineer UI permissions for users and Copilot settings', asyn
     await goNav(page, 'AI Copilot 配置', 'AI Copilot 配置')
     const copilotRegion = page.getByRole('region', { name: 'AI Copilot 配置工作区' })
     await expect(copilotRegion).toBeVisible()
-    await expect(copilotRegion.getByRole('button', { name: '测试连接' })).toBeDisabled()
-    await expect(copilotRegion.getByRole('button', { name: '保存配置' })).toBeDisabled()
-    await expect(copilotRegion.getByLabel('API Endpoint')).toBeDisabled()
+    await expect(copilotRegion.getByRole('button', { name: '新增配置' }).first()).toBeDisabled()
+    await expect(copilotRegion.locator('.copilot-profile-editor')).toBeHidden()
     await expect(copilotRegion.locator('.provider-card')).toHaveCount(5)
     for (const provider of await copilotRegion.locator('.provider-card').all()) {
       await expect(provider).toBeDisabled()

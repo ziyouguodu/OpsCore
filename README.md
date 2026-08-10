@@ -50,14 +50,69 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
   - 菜单与资源权限边界。
   - 凭据查看二次校验密码配置。
 - AI Copilot：
-  - 全局悬浮入口。
-  - AI Copilot 配置页，支持本地模型、OpenAI GPT、Anthropic Claude、Google Gemini 和 OpenAI 兼容接口的前端配置形态。
+  - 顶栏全局入口，可放大、还原和隐藏。
+  - 支持本地模型、OpenAI GPT、Anthropic Claude、Google Gemini 和 OpenAI 兼容接口。
+  - 支持保存多个模型配置、连接测试和显式切换唯一当前启用模型；API Key 由后端分别加密托管。
+  - 后端代理真实模型调用，按当前角色和配置开关注入资产、事件、任务和值班上下文；不发送受控凭据。
 
 灰度或后续模块仅作为菜单占位，不表示已经具备完整业务能力。
 
-值班中心已通过 `GET/PUT /api/duty-center` 持久化团队、系统用户成员、排班模板、日历分配、当前值班、交接日志和升级策略，并使用 revision 乐观并发控制避免多用户静默覆盖。基础 `daily` / `weekly` 值班记录接口继续保留兼容。
+值班中心已通过 `GET/PUT /api/duty-center` 持久化团队、系统用户成员、排班模板、日历分配、当前值班、交接日志和升级策略，并使用 revision 乐观并发控制避免多用户静默覆盖。业务实体同步写入带外键的 `duty_*` 关系表，JSON 只保留兼容快照；基础 `daily` / `weekly` 值班记录接口继续保留兼容。
 
 ## 技术栈
+
+```mermaid
+flowchart TB
+    USER["运维人员 / 管理人员"]
+
+    subgraph OPSCORE["OpsCore 一期核心平台"]
+        direction TB
+
+        ENTRY["统一接入层<br/>Nginx 静态资源托管与 API 反向代理"]
+
+        WEB["前端体验层<br/>Vue 3 SPA · Vite 构建<br/>工作台 · 资产 · 协同响应 · 权限 · AI Copilot"]
+
+        API["接口与应用层<br/>Go 1.24 REST API · net/http"]
+
+        AUTH["认证与安全<br/>账号密码 · JWT · RBAC · 请求限流"]
+
+        BUSINESS["核心业务<br/>CMDB · 实例 · 值班 · 任务 · 事件"]
+
+        GOVERNANCE["平台治理<br/>操作审计 · 状态流转 · 凭据校验"]
+
+        COPILOT["AI Copilot<br/>上下文授权 · 连接测试 · 模型代理"]
+
+        STORE["数据访问层<br/>pgx · 事务控制 · 版本化迁移"]
+
+        DATABASE[("PostgreSQL 16<br/>业务数据 · 权限 · 审计<br/>加密凭据 · AI 模型配置")]
+
+        ENTRY --> WEB
+        WEB -->|"/api"| API
+
+        API --> AUTH
+        API --> BUSINESS
+        API --> GOVERNANCE
+        API --> COPILOT
+
+        AUTH --> STORE
+        BUSINESS --> STORE
+        GOVERNANCE --> STORE
+        COPILOT --> STORE
+
+        STORE --> DATABASE
+    end
+
+    CLOUD["云端模型服务<br/>OpenAI · Claude · Gemini<br/>OpenAI 兼容接口"]
+
+    LOCAL["本地模型服务<br/>Ollama · 私有模型"]
+
+    KEY["AES-GCM 密钥<br/>环境变量托管"]
+
+    USER -->|"HTTPS"| ENTRY
+    COPILOT --> CLOUD
+    COPILOT --> LOCAL
+    KEY -.->|"加密敏感信息"| GOVERNANCE
+```
 
 | 层级 | 技术 |
 | --- | --- |
@@ -79,8 +134,10 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
 ├── frontend/                 # Vue 3 + Vite 前端
 │   ├── src/App.vue           # 应用壳、全局状态和 API 编排
 │   ├── src/components/       # 认证、布局和一期业务页面组件
+│   ├── src/composables/      # 路由、首页视图模型、Copilot、Toast 等编排逻辑
 │   ├── src/dashboard-metrics.js # 首页实时指标计算
 │   ├── src/duty-date.js      # 值班日期与日历计算
+│   ├── src/workflow-status.js # 任务与事件合法状态选项
 │   ├── src/api.js            # API 客户端和 Token 辅助方法
 │   └── src/styles.css        # 全局样式
 ├── deploy/                   # Docker Compose 和环境变量模板
@@ -105,6 +162,16 @@ cd deploy
 cp .env.example .env
 docker compose up --build -d
 ```
+
+生产或远程环境使用生产覆盖配置，并先替换 `.env` 中全部占位值：
+
+```bash
+cd deploy
+docker compose -f docker-compose.yml -f docker-compose.production.yml up --build -d
+```
+
+生产模式会在后端启动前校验数据库密码、JWT 密钥、凭据加密密钥和管理员初始密码；仍使用示例占位值时服务会拒绝启动。
+生产覆盖还会取消 PostgreSQL 和后端 API 的宿主机端口映射，只保留前端入口和 Compose 内部服务网络。
 
 默认访问地址：
 
@@ -171,10 +238,12 @@ cp deploy/.env.example deploy/.env
 | `POSTGRES_PORT` | 本机 PostgreSQL 暴露端口 |
 | `BACKEND_PORT` | 本机后端 API 端口 |
 | `FRONTEND_PORT` | 本机前端端口 |
+| `OPSCORE_ENV` | 运行环境；生产部署必须为 `production` |
 | `OPSCORE_JWT_SECRET` | JWT 签名密钥 |
 | `OPSCORE_CREDENTIAL_ENCRYPTION_KEY` | 敏感凭据 AES-GCM 加密密钥，至少 32 字节 |
 | `OPSCORE_INITIAL_ADMIN_PASSWORD` | 初始管理员密码 |
 | `OPSCORE_CORS_ORIGIN` | 后端允许的前端来源 |
+| `OPSCORE_TRUST_PROXY` | 是否信任反向代理客户端 IP 头；本地直连默认 `false`，生产 Compose 自动启用 |
 | `VITE_API_BASE` | 前端 API 基础路径，Compose 默认 `/api` |
 | `VITE_ENABLE_DEMO_DATA` | 是否启用前端演示数据，默认 `false`；仅静态演示时设为 `true` |
 
@@ -199,6 +268,7 @@ go run ./cmd/server
 - `OPSCORE_CREDENTIAL_ENCRYPTION_KEY`
 - `OPSCORE_INITIAL_ADMIN_PASSWORD`
 - `OPSCORE_CORS_ORIGIN`
+- `OPSCORE_TRUST_PROXY`
 
 ### 前端
 
@@ -260,7 +330,9 @@ Smoke 脚本会在后端容器内验证一期关键 API 流程：
 - 资产创建。
 - 敏感凭据写入和受限查看。
 - 任务默认值和状态流转。
+- 任务不能跳过“待处理”初始状态，非法流转会被拒绝。
 - 事件等级、默认值和状态流转。
+- 事件不能跳过“新建”初始状态，非法流转会被拒绝。
 - 值班规则校验。
 
 如果管理员密码已经初始化，不再是默认密码：
@@ -268,6 +340,8 @@ Smoke 脚本会在后端容器内验证一期关键 API 流程：
 ```bash
 ADMIN_USERNAME=admin ADMIN_PASSWORD='your-current-password' scripts/smoke-api.sh
 ```
+
+Smoke 默认把当前管理员密码设置为本地统一凭据校验密码。需要使用独立校验密码时，可额外传入 `CREDENTIAL_VERIFY_PASSWORD`。
 
 如果忘记本地管理员密码，可在 Docker Compose 启动后执行：
 
@@ -295,7 +369,15 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - 密码/密钥使用 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY` 加密后落库。
 - 普通列表和保存响应不会返回明文凭据。
 - 凭据查看需要权限校验和二次密码校验。
+- 二次校验使用超级管理员在权限页配置的统一密码；未配置时禁止查看明文凭据，不回退账号登录密码。
+- 登录和凭据二次验证连续失败会触发临时锁定并返回 `429`。
 - 生产环境必须固定保存 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY`。密钥变更后，旧密文将无法解密。
+
+### 操作审计
+
+- 登录、用户与角色、凭据查看、值班、任务、事件和系统配置等关键操作写入 `audit_events`。
+- 审计记录包含操作人、动作、资源、结果、来源 IP 和时间，不保存密码、Token、API Key 或明文凭据。
+- 超级管理员可在“权限管理 / 操作审计”查看最近记录；接口为 `GET /api/audit-events`。
 
 ### 生产安全提醒
 
@@ -304,8 +386,8 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - 更换所有默认密码和默认密钥。
 - 补充 HTTPS、访问控制和反向代理安全配置。
 - 配置数据库备份和恢复流程。
-- 增加审计日志，尤其是凭据查看、用户管理、事件变更和自动化操作。
-- AI Copilot 密钥已由后端加密托管；后续继续补充真实调用代理、权限感知上下文和人工确认机制。
+- 为审计日志配置保留周期、归档和外部日志平台转发策略。
+- AI Copilot 密钥由后端加密托管，问答由后端代理并强制记录不含问题正文和密钥的操作审计；高风险动作仍只输出建议并要求人工确认。
 
 ## API 概览
 
@@ -313,11 +395,13 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 
 | 模块 | 接口示例 |
 | --- | --- |
-| 健康检查 | `GET /api/health` |
+| 健康检查 | `GET /api/health`，同时检查 PostgreSQL 可用性 |
 | 认证 | `POST /api/auth/login`、`GET /api/auth/me`、`POST /api/auth/password` |
 | Dashboard | `GET /api/dashboard` |
 | 用户与角色 | `GET/POST /api/users`、`PUT/DELETE /api/users/{id}` |
 | 凭据校验配置 | `GET/PUT /api/security/credential-verification` |
+| 操作审计 | `GET /api/audit-events` |
+| AI Copilot | `GET/POST /api/copilot/configs`、`PUT/DELETE /api/copilot/configs/{id}`、`POST /api/copilot/configs/{id}/activate`、`POST /api/copilot/configs/{id}/test-connection`、`POST /api/copilot/test-connection`、`POST /api/copilot/chat` |
 | 资产台账 | `GET/POST /api/assets`、`PUT/DELETE /api/assets/{id}` |
 | 资产凭据 | `GET/PUT /api/assets/{id}/credential`、`POST /api/assets/{id}/credential/reveal` |
 | 中间件与数据库 | `GET/POST /api/middleware`、`PUT/DELETE /api/middleware/{id}` |
@@ -342,9 +426,8 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 
 ## 开源贡献说明
 
-欢迎基于当前项目进行试用、问题反馈和二次开发。正式开放协作前，建议补充以下文件：
+欢迎基于当前项目进行试用、问题反馈和二次开发。仓库已使用 Apache License 2.0；正式开放社区协作前，建议继续补充以下文件：
 
-- `LICENSE`：明确开源许可证。
 - `CONTRIBUTING.md`：贡献流程、分支命名、提交规范和代码评审要求。
 - `CODE_OF_CONDUCT.md`：社区行为准则。
 - `SECURITY.md`：安全漏洞报告方式和响应流程。
@@ -369,12 +452,12 @@ scripts/smoke-api.sh
 
 短期优先事项：
 
-- 继续把 `frontend/src/App.vue` 中的 API 编排和跨页状态提取为聚焦 composable，业务页面、认证、导航、权限和 Copilot 配置已完成首轮组件化。
-- 按值班报表查询和审计需求，将当前带 revision 的值班状态文档逐步拆分为专用关系表和历史事件表。
-- 补充前端 lint 和基础测试能力。
+- 继续把 `frontend/src/App.vue` 中的资产、实例和用户 API 编排提取为聚焦 composable；首页视图模型、Copilot、延迟列表刷新、确认弹窗和 Toast 已完成拆分。
+- 为值班关系表增加按团队、日期和人员的专用查询接口与历史事件表，支撑报表和排班变更追溯。
+- 在现有无依赖静态检查、Node 单元测试和 Playwright E2E 基础上逐步补充 Vue 组件级测试。
 - 补充 API 文档或 OpenAPI 风格接口说明。
-- 增加审计日志。
-- 扩展 AI Copilot 为基于真实资产、事件、任务、值班和预案的权限感知查询与建议流程。
+- 为审计日志增加保留、归档和外部日志平台转发。
+- 扩展 AI Copilot 的预案检索、根因证据引用和经人工确认的受控自动化编排。
 
 中长期方向：
 

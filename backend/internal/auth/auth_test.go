@@ -18,6 +18,20 @@ func TestPasswordHashVerifiesOriginalPasswordOnly(t *testing.T) {
 	}
 }
 
+func TestPasswordFunctionsRejectOversizedInputBeforeExpensiveWork(t *testing.T) {
+	oversized := string(make([]byte, maxPasswordBytes+1))
+	if _, err := HashPassword(oversized); err == nil {
+		t.Fatal("expected oversized password hashing to be rejected")
+	}
+	hash, err := HashPassword("ChangeMe123!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if VerifyPassword(hash, oversized) {
+		t.Fatal("oversized password must not verify")
+	}
+}
+
 func TestSignerRejectsTamperedToken(t *testing.T) {
 	signer := NewSigner("secret", time.Hour)
 	token, err := signer.Issue(1, "admin", []string{RoleSuperAdmin})

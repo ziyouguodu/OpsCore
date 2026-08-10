@@ -12,7 +12,7 @@ func (s *Server) dutyCenter(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		state, err := s.store.GetDutyCenter(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, state)

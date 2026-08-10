@@ -14,6 +14,12 @@ var schemaMigrations = []schemaMigration{
 	{version: "001_initial", sql: schemaSQL},
 	{version: "002_duty_center", sql: dutyCenterSchemaSQL},
 	{version: "003_remove_connected_status", sql: removeConnectedStatusSchemaSQL},
+	{version: "004_audit_events", sql: auditEventsSchemaSQL},
+	{version: "005_list_indexes", sql: listIndexesSchemaSQL},
+	{version: "006_typed_dates_user_refs", sql: typedDatesAndUserReferencesSchemaSQL},
+	{version: "007_relational_duty_center", sql: relationalDutyCenterSchemaSQL},
+	{version: "008_trigram_search_indexes", sql: trigramSearchIndexesSchemaSQL},
+	{version: "009_copilot_model_configs", sql: copilotModelProfilesSchemaSQL},
 }
 
 func (s *Store) runMigrations(ctx context.Context) error {

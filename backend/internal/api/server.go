@@ -9,18 +9,22 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"opscore/backend/internal/auth"
 	"opscore/backend/internal/config"
-	"opscore/backend/internal/domain"
 	"opscore/backend/internal/models"
 	"opscore/backend/internal/store"
 )
 
 type Server struct {
-	store  persistence
-	signer auth.Signer
-	cfg    config.Config
+	store             persistence
+	signer            auth.Signer
+	cfg               config.Config
+	rateLimitersOnce  sync.Once
+	loginLimiter      *failureLimiter
+	credentialLimiter *failureLimiter
+	copilotLimiter    *requestWindowLimiter
 }
 
 type ctxKey string
@@ -30,55 +34,12 @@ const maxJSONBodyBytes = 1 << 20
 
 var errForbiddenAssetDelete = store.ErrForbiddenAssetDelete
 var errLastSuperAdmin = store.ErrLastSuperAdmin
+var errUserAssignedToDuty = store.ErrUserAssignedToDuty
 var errStatusConflict = store.ErrStatusConflict
 var errDutyRevisionConflict = store.ErrDutyRevisionConflict
-
-type persistence interface {
-	Authenticate(context.Context, string, string) (models.User, bool, error)
-	GetUser(context.Context, int64) (models.User, error)
-	ChangePassword(context.Context, int64, string, string) (models.User, error)
-	Dashboard(context.Context) (models.Dashboard, error)
-	ListUsers(context.Context) ([]models.UserListItem, error)
-	CreateUser(context.Context, models.UserMutation) (models.UserListItem, error)
-	UpdateUser(context.Context, int64, models.UserMutation) (models.UserListItem, error)
-	DeleteUser(context.Context, int64) error
-	ListAssets(context.Context) ([]models.Asset, error)
-	UpsertAsset(context.Context, models.Asset) (models.Asset, error)
-	DeleteAsset(context.Context, int64, int64, bool) error
-	GetAssetCredential(context.Context, int64) (models.AssetCredential, error)
-	VerifyUserPassword(context.Context, string, string) (bool, error)
-	HasCredentialVerificationPassword(context.Context) (bool, error)
-	SetCredentialVerificationPassword(context.Context, string) error
-	VerifyCredentialPassword(context.Context, string) (bool, error)
-	UpsertAssetCredential(context.Context, models.AssetCredential) (models.AssetCredential, error)
-	GetMiddlewareCredential(context.Context, int64) (models.MiddlewareCredential, error)
-	UpsertMiddlewareCredential(context.Context, models.MiddlewareCredential) (models.MiddlewareCredential, error)
-	GetCopilotConfig(context.Context) (models.CopilotConfig, error)
-	UpsertCopilotConfig(context.Context, models.CopilotConfig) (models.CopilotConfig, error)
-	GetCopilotAPIKey(context.Context) (string, error)
-	ListMiddleware(context.Context) ([]models.MiddlewareInstance, error)
-	CreateMiddleware(context.Context, models.MiddlewareInstance) (models.MiddlewareInstance, error)
-	UpdateMiddleware(context.Context, int64, models.MiddlewareInstance) (models.MiddlewareInstance, error)
-	DeleteMiddleware(context.Context, int64) error
-	ListOnCalls(context.Context) ([]models.OnCallSchedule, error)
-	CreateOnCall(context.Context, models.OnCallSchedule) (models.OnCallSchedule, error)
-	UpdateOnCall(context.Context, int64, models.OnCallSchedule) (models.OnCallSchedule, error)
-	DeleteOnCall(context.Context, int64) error
-	GetDutyCenter(context.Context) (models.DutyCenterState, error)
-	SaveDutyCenter(context.Context, models.DutyCenterMutation, int64) (models.DutyCenterState, error)
-	ListTasks(context.Context) ([]models.Task, error)
-	CreateTask(context.Context, models.Task) (models.Task, error)
-	UpdateTask(context.Context, int64, models.Task) (models.Task, error)
-	DeleteTask(context.Context, int64) error
-	GetTaskStatus(context.Context, int64) (string, error)
-	UpdateTaskStatus(context.Context, int64, string) error
-	ListIncidents(context.Context) ([]models.Incident, error)
-	CreateIncident(context.Context, models.Incident) (models.Incident, error)
-	UpdateIncident(context.Context, int64, models.Incident) (models.Incident, error)
-	DeleteIncident(context.Context, int64) error
-	GetIncidentStatus(context.Context, int64) (string, error)
-	UpdateIncidentStatus(context.Context, int64, string) error
-}
+var errCopilotProfileNotFound = store.ErrCopilotProfileNotFound
+var errCopilotActiveProfileDelete = store.ErrCopilotActiveProfileDelete
+var errCopilotProfileKeyRequired = store.ErrCopilotProfileKeyRequired
 
 func NewServer(store *store.Store, signer auth.Signer, cfg config.Config) *Server {
 	return &Server{store: store, signer: signer, cfg: cfg}
@@ -92,6 +53,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/auth/password", s.requireAuth(http.HandlerFunc(s.changePassword)))
 	mux.Handle("GET /api/dashboard", s.requireAuth(http.HandlerFunc(s.dashboard)))
 	mux.Handle("GET /api/users", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.users)))
+	mux.Handle("GET /api/user-directory", s.requireAuth(http.HandlerFunc(s.userDirectory)))
 	mux.Handle("POST /api/users", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.users)))
 	mux.Handle("PUT /api/users/{id}", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.userResource)))
 	mux.Handle("DELETE /api/users/{id}", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.userResource)))
@@ -100,6 +62,14 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/copilot/config", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotConfig)))
 	mux.Handle("PUT /api/copilot/config", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotConfig)))
 	mux.Handle("POST /api/copilot/test-connection", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotTestConnection)))
+	mux.Handle("GET /api/copilot/configs", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfiles)))
+	mux.Handle("POST /api/copilot/configs", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfiles)))
+	mux.Handle("PUT /api/copilot/configs/{id}", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfileResource)))
+	mux.Handle("DELETE /api/copilot/configs/{id}", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfileResource)))
+	mux.Handle("POST /api/copilot/configs/{id}/activate", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfileActivate)))
+	mux.Handle("POST /api/copilot/configs/{id}/test-connection", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.copilotProfileTestConnection)))
+	mux.Handle("POST /api/copilot/chat", s.requireAuth(http.HandlerFunc(s.copilotChat)))
+	mux.Handle("GET /api/audit-events", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.auditEvents)))
 	mux.Handle("GET /api/assets", s.requirePermission(auth.PermissionAssetRead, http.HandlerFunc(s.assets)))
 	mux.Handle("POST /api/assets", s.requirePermission(auth.PermissionAssetWrite, http.HandlerFunc(s.assets)))
 	mux.Handle("PUT /api/assets/{id}", s.requirePermission(auth.PermissionAssetWrite, http.HandlerFunc(s.assetResource)))
@@ -130,11 +100,15 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /api/incidents/{id}", s.requirePermission(auth.PermissionIncidentFollowup, http.HandlerFunc(s.incidentResource)))
 	mux.Handle("DELETE /api/incidents/{id}", s.requirePermission(auth.PermissionIncidentFollowup, http.HandlerFunc(s.incidentResource)))
 	mux.Handle("PATCH /api/incidents/", s.requirePermission(auth.PermissionIncidentFollowup, http.HandlerFunc(s.incidentStatus)))
-	return s.cors(mux)
+	return s.cors(s.auditRequests(mux))
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	if err := s.store.Ping(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "database": "unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "database": "ok"})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -146,16 +120,26 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	limitKey := loginRateKey(r, body.Username, s.cfg.TrustProxy)
+	if allowed, retryAfter := s.loginAttempts().Allow(limitKey); !allowed {
+		writeRateLimit(w, retryAfter)
+		s.recordLoginAudit(r, 0, body.Username, "failure", "rate_limited")
+		return
+	}
 	user, ok, err := s.store.Authenticate(r.Context(), body.Username, body.Password)
 	if err != nil || !ok {
+		s.loginAttempts().Failure(limitKey)
+		s.recordLoginAudit(r, 0, body.Username, "failure", "invalid_credentials")
 		writeError(w, http.StatusUnauthorized, errors.New("invalid username or password"))
 		return
 	}
+	s.loginAttempts().Success(limitKey)
 	token, err := s.signer.Issue(user.ID, user.Username, user.Roles)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeInternalError(w, err)
 		return
 	}
+	s.recordLoginAudit(r, user.ID, user.Username, "success", "")
 	writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": user})
 }
 
@@ -198,7 +182,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	data, err := s.store.Dashboard(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, data)
@@ -209,7 +193,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		items, err := s.store.ListUsers(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, items)
@@ -230,6 +214,15 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusCreated, saved)
 	}
+}
+
+func (s *Server) userDirectory(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListUserDirectory(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) userResource(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +259,7 @@ func (s *Server) userResource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.store.DeleteUser(r.Context(), id); err != nil {
-			if errors.Is(err, errLastSuperAdmin) {
+			if errors.Is(err, errLastSuperAdmin) || errors.Is(err, errUserAssignedToDuty) {
 				writeError(w, http.StatusConflict, err)
 				return
 			}
@@ -280,9 +273,14 @@ func (s *Server) userResource(w http.ResponseWriter, r *http.Request) {
 func (s *Server) assets(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		items, err := s.store.ListAssets(r.Context())
+		query, err := parseListQuery(r)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		items, err := s.store.ListAssetsPage(r.Context(), query)
+		if err != nil {
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, items)
@@ -349,7 +347,7 @@ func (s *Server) credentialVerification(w http.ResponseWriter, r *http.Request) 
 	case http.MethodGet:
 		hasPassword, err := s.store.HasCredentialVerificationPassword(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"hasPassword": hasPassword})
@@ -412,11 +410,19 @@ func (s *Server) assetCredential(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		ok, err := s.verifyCredentialRevealPassword(r.Context(), claimsFrom(r.Context()), body.Password)
+		claims := claimsFrom(r.Context())
+		limitKey := credentialRateKey(r, claims.UserID, s.cfg.TrustProxy)
+		if allowed, retryAfter := s.credentialAttempts().Allow(limitKey); !allowed {
+			writeRateLimit(w, retryAfter)
+			return
+		}
+		ok, err := s.verifyCredentialRevealPassword(r.Context(), claims, body.Password)
 		if err != nil || !ok {
+			s.credentialAttempts().Failure(limitKey)
 			writeError(w, http.StatusUnauthorized, errors.New("credential verification password is invalid"))
 			return
 		}
+		s.credentialAttempts().Success(limitKey)
 		item, err := s.store.GetAssetCredential(r.Context(), assetID)
 		if err != nil {
 			writeError(w, http.StatusNotFound, err)
@@ -446,9 +452,14 @@ func (s *Server) assetCredential(w http.ResponseWriter, r *http.Request) {
 func (s *Server) middleware(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		items, err := s.store.ListMiddleware(r.Context())
+		query, err := parseListQuery(r)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		items, err := s.store.ListMiddlewarePage(r.Context(), query)
+		if err != nil {
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, items)
@@ -538,11 +549,19 @@ func (s *Server) middlewareCredential(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		ok, err := s.verifyCredentialRevealPassword(r.Context(), claimsFrom(r.Context()), body.Password)
+		claims := claimsFrom(r.Context())
+		limitKey := credentialRateKey(r, claims.UserID, s.cfg.TrustProxy)
+		if allowed, retryAfter := s.credentialAttempts().Allow(limitKey); !allowed {
+			writeRateLimit(w, retryAfter)
+			return
+		}
+		ok, err := s.verifyCredentialRevealPassword(r.Context(), claims, body.Password)
 		if err != nil || !ok {
+			s.credentialAttempts().Failure(limitKey)
 			writeError(w, http.StatusUnauthorized, errors.New("credential verification password is invalid"))
 			return
 		}
+		s.credentialAttempts().Success(limitKey)
 		item, err := s.store.GetMiddlewareCredential(r.Context(), middlewareID)
 		if err != nil {
 			writeError(w, http.StatusNotFound, err)
@@ -569,7 +588,7 @@ func (s *Server) middlewareCredential(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) verifyCredentialRevealPassword(ctx context.Context, claims auth.Claims, password string) (bool, error) {
+func (s *Server) verifyCredentialRevealPassword(ctx context.Context, _ auth.Claims, password string) (bool, error) {
 	hasUnifiedPassword, err := s.store.HasCredentialVerificationPassword(ctx)
 	if err != nil {
 		return false, err
@@ -577,7 +596,7 @@ func (s *Server) verifyCredentialRevealPassword(ctx context.Context, claims auth
 	if hasUnifiedPassword {
 		return s.store.VerifyCredentialPassword(ctx, password)
 	}
-	return s.store.VerifyUserPassword(ctx, claims.Username, password)
+	return false, nil
 }
 
 func (s *Server) oncalls(w http.ResponseWriter, r *http.Request) {
@@ -585,7 +604,7 @@ func (s *Server) oncalls(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		items, err := s.store.ListOnCalls(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, items)
@@ -638,274 +657,6 @@ func (s *Server) oncallResource(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-func (s *Server) tasks(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		items, err := s.store.ListTasks(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, items)
-	case http.MethodPost:
-		var item models.Task
-		if err := readJSON(r, &item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if item.Status == "" {
-			item.Status = string(domain.TaskPending)
-		}
-		if item.Type == "" {
-			item.Type = "任务"
-		}
-		if err := validateTaskMutation(item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateTaskStatus(item.Status); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		saved, err := s.store.CreateTask(r.Context(), item)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, saved)
-	}
-}
-
-func (s *Server) taskResource(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	switch r.Method {
-	case http.MethodPut:
-		var item models.Task
-		if err := readJSON(r, &item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if item.Status == "" {
-			item.Status = string(domain.TaskPending)
-		}
-		if item.Type == "" {
-			item.Type = "任务"
-		}
-		if err := validateTaskMutation(item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateTaskStatus(item.Status); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		current, err := s.store.GetTaskStatus(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err)
-			return
-		}
-		if err := validateTaskTransition(current, item.Status); err != nil {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-		saved, err := s.store.UpdateTask(r.Context(), id, item)
-		if err != nil {
-			if errors.Is(err, errStatusConflict) {
-				writeError(w, http.StatusConflict, err)
-				return
-			}
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, saved)
-	case http.MethodDelete:
-		if err := s.store.DeleteTask(r.Context(), id); err != nil {
-			writeError(w, http.StatusNotFound, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func (s *Server) taskStatus(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := validateTaskStatus(body.Status); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	current, err := s.store.GetTaskStatus(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err)
-		return
-	}
-	if err := validateTaskTransition(current, body.Status); err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
-	}
-	if err := s.store.UpdateTaskStatus(r.Context(), id, body.Status); err != nil {
-		if errors.Is(err, errStatusConflict) {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": body.Status})
-}
-
-func (s *Server) incidents(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		items, err := s.store.ListIncidents(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, items)
-	case http.MethodPost:
-		var item models.Incident
-		if err := readJSON(r, &item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if item.Status == "" {
-			item.Status = string(domain.IncidentNew)
-		}
-		if item.Level == "" {
-			item.Level = "P3"
-		}
-		if err := validateIncidentMutation(item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateIncidentLevel(item.Level); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateIncidentStatus(item.Status); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		saved, err := s.store.CreateIncident(r.Context(), item)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		writeJSON(w, http.StatusCreated, saved)
-	}
-}
-
-func (s *Server) incidentResource(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	switch r.Method {
-	case http.MethodPut:
-		var item models.Incident
-		if err := readJSON(r, &item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if item.Status == "" {
-			item.Status = string(domain.IncidentNew)
-		}
-		if item.Level == "" {
-			item.Level = "P3"
-		}
-		if err := validateIncidentMutation(item); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateIncidentLevel(item.Level); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := validateIncidentStatus(item.Status); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		current, err := s.store.GetIncidentStatus(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err)
-			return
-		}
-		if err := validateIncidentTransition(current, item.Status); err != nil {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-		saved, err := s.store.UpdateIncident(r.Context(), id, item)
-		if err != nil {
-			if errors.Is(err, errStatusConflict) {
-				writeError(w, http.StatusConflict, err)
-				return
-			}
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, saved)
-	case http.MethodDelete:
-		if err := s.store.DeleteIncident(r.Context(), id); err != nil {
-			writeError(w, http.StatusNotFound, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
-
-func (s *Server) incidentStatus(w http.ResponseWriter, r *http.Request) {
-	id, err := idFromPath(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := validateIncidentStatus(body.Status); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	current, err := s.store.GetIncidentStatus(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err)
-		return
-	}
-	if err := validateIncidentTransition(current, body.Status); err != nil {
-		writeError(w, http.StatusConflict, err)
-		return
-	}
-	if err := s.store.UpdateIncidentStatus(r.Context(), id, body.Status); err != nil {
-		if errors.Is(err, errStatusConflict) {
-			writeError(w, http.StatusConflict, err)
-			return
-		}
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": body.Status})
 }
 
 func (s *Server) requireAuth(next http.Handler) http.Handler {
@@ -999,7 +750,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, map[string]string{"error": err.Error()})
+	writeJSON(w, status, map[string]string{"error": publicError(status, err)})
 }
 
 func idFromPath(path string) (int64, error) {

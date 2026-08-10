@@ -1,4 +1,4 @@
-export const routeViews = ['dashboard', 'cmdb', 'middleware', 'oncall', 'tasks', 'incidents', 'permissions', 'copilot-settings']
+export const routeViews = ['dashboard', 'cmdb', 'middleware', 'oncall', 'tasks', 'incidents', 'permissions', 'audit', 'copilot-settings']
 export const permissionTabs = ['users', 'resources']
 
 export const controlPrinciple = '首页看健康，异常看影响，告警看根因，处置看流程，复盘看改进，AI 贯穿查询、分析、建议和自动化。'
@@ -39,6 +39,11 @@ export const viewMeta = {
     breadcrumb: '权限管理',
     subtitle: '管理一期角色、账号密码登录、菜单资源授权和敏感凭据查看边界。'
   },
+  audit: {
+    title: '操作审计',
+    breadcrumb: '权限管理',
+    subtitle: '追踪登录、权限、凭据、值班、任务和事件等关键操作。'
+  },
   'copilot-settings': {
     title: 'AI Copilot 配置',
     breadcrumb: '系统配置',
@@ -73,7 +78,7 @@ export const menu = [
     children: [
       { id: 'permissions', label: '用户与角色', icon: 'users', enabled: true, permissionTab: 'users' },
       { id: 'permissions', label: '菜单与资源权限', icon: 'lock', enabled: true, permissionTab: 'resources' },
-      { label: '审批与操作审计', icon: 'audit', enabled: false },
+      { id: 'audit', label: '操作审计', icon: 'audit', enabled: true },
       { label: 'SSO/LDAP', icon: 'key', enabled: false }
     ]
   },

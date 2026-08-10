@@ -1,5 +1,7 @@
 <script setup>
 import PaginationBar from './PaginationBar.vue'
+import { formatDateTime } from '../date-time'
+import { taskStatusOptions } from '../workflow-status'
 
 defineProps({
   activeTaskCount: { type: Number, default: 0 },
@@ -12,7 +14,8 @@ defineProps({
   pageSize: { type: Number, required: true },
   pagedTasks: { type: Array, default: () => [] },
   statusCounts: { type: Object, default: () => ({}) },
-  total: { type: Number, default: 0 }
+  total: { type: Number, default: 0 },
+  users: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits([
@@ -46,7 +49,7 @@ function closeEditorOnFocusOut(event) {
     </div>
 
     <div class="status-grid task-status">
-      <article v-for="status in ['待处理','处理中','待确认','已完成','已关闭']" :key="status" :class="{ active: status === '处理中' }">
+      <article v-for="status in ['待处理','处理中','待确认','已完成','已关闭']" :key="status">
         <small>{{ status }}</small>
         <strong>{{ statusCounts[status] || 0 }}</strong>
         <span>{{ status === '待确认' ? '等待发起人确认' : status === '已关闭' ? '归档记录' : '任务状态' }}</span>
@@ -56,11 +59,14 @@ function closeEditorOnFocusOut(event) {
     <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
       <h3>{{ form.id ? '编辑任务' : '创建任务' }}</h3>
       <div class="form-grid">
-        <input v-model="form.title" placeholder="任务标题" />
-        <input v-model="form.assignee" placeholder="负责人" />
-        <input v-model="form.dueAt" placeholder="截止时间" />
-        <select v-model="form.status"><option>待处理</option><option>处理中</option><option>待确认</option><option>已完成</option><option>已关闭</option></select>
-        <textarea v-model="form.description" class="form-wide" rows="4" placeholder="任务说明：描述背景、处理要求、关联资产或验收标准"></textarea>
+        <input v-model="form.title" aria-label="任务标题" placeholder="任务标题" />
+        <select v-model="form.assigneeUserId" aria-label="任务负责人">
+          <option value="">未指定负责人</option>
+          <option v-for="user in users" :key="user.id" :value="user.id">{{ user.displayName }}（{{ user.username }}）</option>
+        </select>
+        <input v-model="form.dueAt" type="datetime-local" aria-label="任务截止时间" />
+        <select v-model="form.status" aria-label="任务状态" disabled><option>{{ form.status }}</option></select>
+        <textarea v-model="form.description" class="form-wide" rows="4" aria-label="任务说明" placeholder="任务说明：描述背景、处理要求、关联资产或验收标准"></textarea>
         <button class="primary" @click="$emit('save')">{{ form.id ? '保存修改' : '创建任务' }}</button>
         <button @click="$emit('close-form')">取消</button>
       </div>
@@ -72,11 +78,11 @@ function closeEditorOnFocusOut(event) {
           <table>
             <thead><tr><th>标题</th><th>负责人</th><th>状态</th><th>截止时间</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="task in pagedTasks" :key="task.id" :class="{ selected: currentTask?.id === task.id }" class="clickable-row" tabindex="0" @click="$emit('choose', task)" @keyup.enter="$emit('choose', task)">
+              <tr v-for="task in pagedTasks" :key="task.id" :class="{ selected: currentTask?.id === task.id }" class="clickable-row" tabindex="0" @click="$emit('choose', task)" @keyup.enter="$emit('choose', task)" @keyup.space.prevent="$emit('choose', task)">
                 <td>{{ task.title }}</td>
                 <td>{{ task.assignee || '-' }}</td>
                 <td><span class="pill">{{ task.status }}</span></td>
-                <td>{{ task.dueAt || '-' }}</td>
+                <td>{{ formatDateTime(task.dueAt) }}</td>
                 <td class="row-actions"><button class="link" @click.stop="$emit('choose', task)">详情</button><button class="link" :disabled="isSample(task)" @click.stop="$emit('edit', task)">编辑</button><button class="link danger-text" :disabled="isSample(task)" @click.stop="$emit('delete', task)">删除</button></td>
               </tr>
               <tr v-if="!pagedTasks.length"><td colspan="5" class="empty">暂无任务记录</td></tr>
@@ -101,12 +107,12 @@ function closeEditorOnFocusOut(event) {
         <dl>
           <dt>负责人</dt><dd>{{ currentTask.assignee || '-' }}</dd>
           <dt>当前状态</dt><dd>{{ currentTask.status }}</dd>
-          <dt>截止时间</dt><dd>{{ currentTask.dueAt || '-' }}</dd>
+          <dt>截止时间</dt><dd>{{ formatDateTime(currentTask.dueAt) }}</dd>
           <dt>说明</dt><dd>{{ currentTask.description || '暂无说明' }}</dd>
         </dl>
         <label>状态流转
-          <select :value="currentTask.status" :disabled="isSample(currentTask)" @change="$emit('update-status', currentTask, $event.target.value)">
-            <option>待处理</option><option>处理中</option><option>待确认</option><option>已完成</option><option>已关闭</option>
+          <select :value="currentTask.status" aria-label="任务状态" :disabled="isSample(currentTask) || taskStatusOptions(currentTask.status).length === 1" @change="$emit('update-status', currentTask, $event.target.value)">
+            <option v-for="status in taskStatusOptions(currentTask.status)" :key="status">{{ status }}</option>
           </select>
         </label>
         <div class="detail-actions">

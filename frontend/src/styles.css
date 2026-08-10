@@ -211,7 +211,7 @@ textarea { min-height: 96px; resize: vertical; line-height: 1.55; }
 .progress i { display: block; height: 100%; background: linear-gradient(90deg, #12b981, #2563eb); }
 .dots { display: flex; gap: 8px; margin-top: 14px; }
 .dots i { width: 18px; height: 18px; border-radius: 50%; }
-.split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .7fr); gap: 12px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .7fr); gap: 12px; align-items: start; }
 .panel { padding: 16px; margin-bottom: 14px; }
 .priority-list { display: grid; gap: 8px; }
 .priority-row { display: grid; grid-template-columns: auto minmax(180px, 1fr) minmax(220px, .85fr); gap: 10px; align-items: center; min-height: 42px; padding: 8px 10px; color: var(--text); text-align: left; background: rgba(15, 23, 42, .48); border: 1px solid var(--border); border-radius: 8px; }
@@ -269,6 +269,13 @@ textarea { min-height: 96px; resize: vertical; line-height: 1.55; }
 .danger-text { color: #fb7185; }
 .inline { display: inline-block; margin-top: 8px; }
 .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.audit-workspace { display: grid; gap: 14px; }
+.audit-query { display: grid; grid-template-columns: minmax(260px, 1fr) 150px auto auto; gap: 10px; align-items: center; }
+.audit-query button { min-height: 38px; padding: 0 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; }
+.audit-workspace code { color: #7dd3fc; font: inherit; font-size: 13px; }
+.empty-state { display: grid; gap: 6px; justify-items: center; padding: 26px 14px; color: var(--muted); text-align: center; }
+.empty-state strong { color: var(--text); }
+.empty-state.compact { padding: 18px 10px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 th { color: #9fb2ca; background: rgba(15, 23, 42, .78); }
@@ -452,7 +459,8 @@ td.row-actions .link + .link { margin-left: 10px; }
 .duty-level-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .duty-level-editor article { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(15, 23, 42, .54); }
 .duty-level-editor strong { color: #7dd3fc; }
-.copilot-config-layout { display: grid; gap: 14px; }
+.copilot-config-layout { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 14px; }
+.copilot-config-layout > * { min-width: 0; }
 .provider-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .provider-card { width: 100%; min-height: 132px; display: grid; gap: 8px; align-content: start; padding: 13px; border: 1px solid var(--border); border-radius: 10px; background: rgba(15, 23, 42, .56); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .provider-card:hover, .provider-card.active { border-color: rgba(56, 189, 248, .5); background: rgba(56, 189, 248, .08); }
@@ -460,12 +468,29 @@ td.row-actions .link + .link { margin-left: 10px; }
 .provider-card:disabled { cursor: not-allowed; opacity: .58; }
 .provider-card:disabled:hover { border-color: var(--border); background: rgba(15, 23, 42, .56); }
 .provider-card span { width: max-content; min-height: 24px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; color: #b9e8ff; background: rgba(56, 189, 248, .1); border: 1px solid rgba(56, 189, 248, .22); font-size: 11px; font-weight: 800; }
-.provider-card strong { color: var(--text); }
-.provider-card small { color: var(--muted); line-height: 1.45; }
+.provider-card strong { color: var(--text); overflow-wrap: anywhere; }
+.provider-card small { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
 .config-card { padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: rgba(15, 23, 42, .58); }
 .config-title { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .config-title h3 { margin-bottom: 4px; }
+.copilot-list-title { margin-bottom: 10px; }
+.copilot-list-title h3 { display: flex; align-items: baseline; }
+.copilot-profile-table { min-width: 1060px; }
+.copilot-profile-table code { color: #bae6fd; font: inherit; }
+.copilot-profile-table tr.is-active-profile td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+.copilot-profile-table tr.is-active-profile { background: rgba(45, 212, 191, .035); }
+.endpoint-cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.copilot-profile-actions { display: inline-flex; align-items: center; gap: 5px; }
+.copilot-profile-actions button { min-height: 30px; padding: 0 8px; border-radius: 6px; color: #7dd3fc; background: transparent; border-color: transparent; }
+.copilot-profile-actions button:disabled { color: var(--muted-2); }
+.copilot-profile-actions button:hover:not(:disabled) { color: #bae6fd; border-color: var(--border-strong); background: rgba(56, 189, 248, .07); }
+.copilot-profile-actions .danger-text:hover:not(:disabled) { color: #fecdd3; border-color: rgba(251, 113, 133, .3); background: rgba(251, 113, 133, .07); }
+.copilot-empty-state button { margin-top: 8px; }
+.copilot-profile-editor .config-title { align-items: center; }
+.editor-actions { margin-left: auto; }
 .copilot-form { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.copilot-context-editor { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.copilot-context-editor h3 { margin-bottom: 10px; }
 .config-secret-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .config-secret-state small { line-height: 1.45; }
 .connection-result { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 12px; padding: 11px 12px; border-radius: 9px; border: 1px solid var(--border); background: rgba(9, 17, 31, .62); }
@@ -516,6 +541,13 @@ td.row-actions .link + .link { margin-left: 10px; }
 .chat { margin: 9px 12px; padding: 9px 10px; border-radius: 9px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .chat.user { margin-left: 50px; color: #fff; background: #2563eb; }
 .chat.ai { margin-right: 50px; color: #dbe6f4; background: rgba(56, 189, 248, .08); border: 1px solid rgba(56, 189, 248, .22); }
+.chat.error { margin-right: 50px; color: #fecdd3; background: rgba(251, 113, 133, .1); border: 1px solid rgba(251, 113, 133, .32); }
+.chat.pending { color: var(--muted); }
+.toast-stack { position: fixed; top: 18px; right: 18px; z-index: 1200; display: grid; gap: 8px; width: min(360px, calc(100vw - 36px)); pointer-events: none; }
+.toast-message { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 44px; padding: 10px 12px; color: #dbeafe; background: rgba(15, 36, 62, .98); border: 1px solid rgba(56, 189, 248, .36); border-radius: 8px; box-shadow: 0 14px 36px rgba(0,0,0,.32); pointer-events: auto; }
+.toast-message.success { color: #ccfbf1; border-color: rgba(45, 212, 191, .42); }
+.toast-message.warning { color: #fef3c7; border-color: rgba(245, 158, 11, .46); }
+.toast-message button { display: grid; place-items: center; width: 28px; min-height: 28px; padding: 0; color: currentColor; background: transparent; border: 0; font-size: 20px; }
 .copilot-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border-top: 1px solid var(--border); background: var(--surface); }
 .copilot-input input { width: 100%; }
 @media (max-width: 1040px) {
@@ -549,7 +581,10 @@ td.row-actions .link + .link { margin-left: 10px; }
   .login-meta { grid-template-columns: 1fr; }
   .flow-arrow { display: none; }
   .editor-head { flex-direction: column; }
+  .copilot-profile-editor .config-title { align-items: stretch; flex-direction: column; }
+  .editor-actions { width: 100%; margin-left: 0; }
   .section-head, .page-actions, .pager { align-items: stretch; flex-direction: column; }
   .query-main, .query-extra { grid-template-columns: 1fr; }
+  .audit-query { grid-template-columns: 1fr; }
   .copilot, .copilot.expanded { left: 16px; right: 16px; bottom: 16px; width: auto; height: min(620px, calc(100vh - 32px)); max-width: none; }
 }
