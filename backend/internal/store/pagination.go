@@ -76,17 +76,18 @@ func (s *Store) ListAssetsPage(ctx context.Context, input models.ListQuery) (mod
 	if orderBy == "" {
 		orderBy = "updated_at"
 	}
-	args := []any{query.Keyword, query.Type, query.Environment, query.Business, query.NetworkZone, query.Status}
+	args := []any{query.Keyword, query.Type, query.Environment, query.Business, query.NetworkZone, query.Status, query.IPs}
 	where := `where ($1='' or (asset_no || ' ' || business || ' ' || ipv4 || ' ' || ipv6 || ' ' || owner || ' ' || deployment_info || ' ' || hostname) ilike '%' || $1 || '%')
 		and ($2='' or type=$2) and ($3='' or environment=$3) and ($4='' or business=$4)
-		and ($5='' or network_zone=$5) and ($6='' or status=$6)`
+		and ($5='' or network_zone=$5) and ($6='' or status=$6)
+		and (coalesce(cardinality($7::text[]), 0) = 0 or lower(ipv4) = any($7::text[]) or lower(ipv6) = any($7::text[]))`
 	var result models.PageResult[models.Asset]
 	if err := s.pool.QueryRow(ctx, `select count(*) from assets `+where, args...).Scan(&result.Total); err != nil {
 		return result, err
 	}
 	pages := clampListPage(&query, result.Total)
 	offset := (query.Page - 1) * query.PageSize
-	rows, err := s.pool.Query(ctx, `select id, coalesce(created_by, 0), asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, host_machine, created_at, updated_at from assets `+where+` order by `+orderBy+` `+query.Order+`, id desc limit $7 offset $8`, append(args, query.PageSize, offset)...)
+	rows, err := s.pool.Query(ctx, `select id, coalesce(created_by, 0), asset_no, type, vendor, cpu_arch, sn, location, business, ipv4, ipv6, environment, os, hostname, network_zone, cpu, memory, disk, deployment_info, owner, status, host_machine, created_at, updated_at from assets `+where+` order by `+orderBy+` `+query.Order+`, id desc limit $8 offset $9`, append(args, query.PageSize, offset)...)
 	if err != nil {
 		return result, err
 	}
@@ -125,20 +126,24 @@ func (s *Store) ListMiddlewarePage(ctx context.Context, input models.ListQuery) 
 	if orderBy == "" {
 		orderBy = "updated_at"
 	}
-	args := []any{query.Keyword, query.Kind, query.Environment, query.Business, query.NetworkZone, query.Status}
+	args := []any{query.Keyword, query.Kind, query.Environment, query.Business, query.NetworkZone, query.Status, query.IPs}
+	endpointHost := `split_part(split_part(split_part(regexp_replace(endpoint, '^[a-zA-Z][a-zA-Z0-9+.-]*://', ''), '/', 1), '?', 1), '#', 1)`
+	endpointIP := `case when ` + endpointHost + ` like '[%' then substring(` + endpointHost + ` from '^\[([0-9A-Fa-f:.]+)\]') when ` + endpointHost + ` ~ '^[0-9]{1,3}(\.[0-9]{1,3}){3}:[0-9]+$' then split_part(` + endpointHost + `, ':', 1) else ` + endpointHost + ` end`
 	where := `where ($1='' or (name || ' ' || kind || ' ' || endpoint || ' ' || business || ' ' || owner) ilike '%' || $1 || '%')
 		and ($2='' or kind=$2) and ($3='' or environment=$3) and ($4='' or business=$4)
-		and ($5='' or network_zone=$5) and ($6='' or status=$6)`
+		and ($5='' or network_zone=$5) and ($6='' or status=$6)
+		and (coalesce(cardinality($7::text[]), 0) = 0 or lower(` + endpointIP + `) = any($7::text[]))`
 	pageWhere := `where ($1='' or (m.name || ' ' || m.kind || ' ' || m.endpoint || ' ' || m.business || ' ' || m.owner) ilike '%' || $1 || '%')
 		and ($2='' or m.kind=$2) and ($3='' or m.environment=$3) and ($4='' or m.business=$4)
-		and ($5='' or m.network_zone=$5) and ($6='' or m.status=$6)`
+		and ($5='' or m.network_zone=$5) and ($6='' or m.status=$6)
+		and (coalesce(cardinality($7::text[]), 0) = 0 or lower(` + strings.ReplaceAll(endpointIP, "endpoint", "m.endpoint") + `) = any($7::text[]))`
 	var result models.PageResult[models.MiddlewareInstance]
 	if err := s.pool.QueryRow(ctx, `select count(*) from middleware_instances `+where, args...).Scan(&result.Total); err != nil {
 		return result, err
 	}
 	pages := clampListPage(&query, result.Total)
 	offset := (query.Page - 1) * query.PageSize
-	rows, err := s.pool.Query(ctx, `select m.id, m.name, m.kind, m.version, m.environment, m.network_zone, m.endpoint, m.business, m.owner, m.status, m.asset_id, coalesce(a.asset_no, ''), m.created_at, m.updated_at from middleware_instances m left join assets a on a.id=m.asset_id `+pageWhere+` order by m.`+orderBy+` `+query.Order+`, m.id desc limit $7 offset $8`, append(args, query.PageSize, offset)...)
+	rows, err := s.pool.Query(ctx, `select m.id, m.name, m.kind, m.version, m.environment, m.network_zone, m.endpoint, m.business, m.owner, m.status, m.asset_id, coalesce(a.asset_no, ''), m.created_at, m.updated_at from middleware_instances m left join assets a on a.id=m.asset_id `+pageWhere+` order by m.`+orderBy+` `+query.Order+`, m.id desc limit $8 offset $9`, append(args, query.PageSize, offset)...)
 	if err != nil {
 		return result, err
 	}

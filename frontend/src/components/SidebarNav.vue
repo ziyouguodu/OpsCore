@@ -15,8 +15,10 @@ const emit = defineEmits(['toggle', 'navigate'])
 <template>
   <aside class="sidebar" :class="{ 'mobile-open': mobileOpen }">
     <div class="brand">
-      <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
-      <span>OpsCore</span>
+      <div class="brand-lockup" title="OpsCore">
+        <img src="/opscore-ai-ops-logo.png" alt="OpsCore logo" />
+        <span>OpsCore</span>
+      </div>
       <button class="sidebar-toggle" type="button" :aria-label="collapsed ? '展开菜单' : '收起菜单'" @click="emit('toggle')">
         {{ collapsed ? '>' : '<' }}
       </button>
@@ -29,7 +31,17 @@ const emit = defineEmits(['toggle', 'navigate'])
 
     <div class="side-section">功能模块</div>
     <div v-for="group in menu.slice(1)" :key="group.label" class="nav-group" :class="{ disabled: group.enabled === false }">
-      <div class="nav-parent" :title="group.label">
+      <button
+        v-if="collapsed && group.children && group.children.some((child) => child.enabled)"
+        class="nav-parent nav-parent-shortcut"
+        type="button"
+        :aria-label="`展开${group.label}菜单`"
+        :title="`展开${group.label}菜单`"
+        @click="emit('toggle')"
+      >
+        <span class="nav-icon"><SvgIcon :name="group.icon" /></span>
+      </button>
+      <div v-else class="nav-parent" :title="group.label">
         <span class="nav-icon"><SvgIcon :name="group.icon" /></span>
         <strong>{{ group.label }}</strong>
         <span class="nav-state">{{ group.enabled === false ? '灰度' : '展开' }}</span>

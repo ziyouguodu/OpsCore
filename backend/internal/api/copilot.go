@@ -37,6 +37,8 @@ type copilotConnectionResponse struct {
 	Message    string `json:"message"`
 }
 
+const copilotModelRequestTimeout = 45 * time.Second
+
 func (s *Server) copilotTestConnection(w http.ResponseWriter, r *http.Request) {
 	var body copilotConnectionRequest
 	if err := readJSON(r, &body); err != nil {
@@ -249,7 +251,7 @@ func validateCopilotEndpointAccess(base string, provider string) error {
 }
 
 func newCopilotHTTPClient(provider string) *http.Client {
-	return newCopilotHTTPClientWithTimeout(provider, 8*time.Second)
+	return newCopilotHTTPClientWithTimeout(provider, copilotModelRequestTimeout)
 }
 
 func newCopilotHTTPClientWithTimeout(provider string, timeout time.Duration) *http.Client {

@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"opscore/backend/internal/auth"
 	"opscore/backend/internal/models"
@@ -155,13 +154,21 @@ func callCopilotModel(ctx context.Context, config models.CopilotConfig, apiKey, 
 	if err != nil {
 		return "", provider, model, err
 	}
-	response, err := newCopilotHTTPClientWithTimeout(provider, 45*time.Second).Do(request)
+	response, err := newCopilotHTTPClientWithTimeout(provider, copilotModelRequestTimeout).Do(request)
 	if err != nil {
 		return "", provider, model, errors.New(connectionFailureMessage(err, apiKey, provider, endpoint))
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", provider, model, fmt.Errorf("模型服务返回 HTTP %d，请检查模型配置和服务状态", response.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+		detail := sanitizeProviderResponse(string(body), apiKey)
+		message := fmt.Sprintf("模型服务返回 HTTP %d", response.StatusCode)
+		if detail != "" {
+			message += "：" + detail
+		} else {
+			message += "，请检查模型配置和服务状态"
+		}
+		return "", provider, model, errors.New(message)
 	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
 	if err != nil {

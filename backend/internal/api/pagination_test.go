@@ -23,6 +23,23 @@ func TestParseListQueryNormalizesPaginationAndFilters(t *testing.T) {
 	}
 }
 
+func TestParseListQueryParsesAndDeduplicatesMultipleIPs(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/assets?ips=192.0.2.10%2C2001%3ADB8%3A%3A1%0A192.0.2.10%3B198.51.100.4", nil)
+	query, err := parseListQuery(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"192.0.2.10", "2001:db8::1", "198.51.100.4"}
+	if len(query.IPs) != len(want) {
+		t.Fatalf("expected %d unique IPs, got %+v", len(want), query.IPs)
+	}
+	for index := range want {
+		if query.IPs[index] != want[index] {
+			t.Fatalf("expected parsed IPs %+v, got %+v", want, query.IPs)
+		}
+	}
+}
+
 func TestAssetsEndpointReturnsPageMetadata(t *testing.T) {
 	store := &mutationStore{userProfile: models.User{ID: 7, Username: "ops.li", Roles: []string{auth.RoleOpsEngineer}}}
 	signer := auth.NewSigner("pagination-test-secret", time.Hour)

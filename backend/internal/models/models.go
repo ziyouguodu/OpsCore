@@ -20,6 +20,7 @@ type ListQuery struct {
 	Page        int
 	PageSize    int
 	Keyword     string
+	IPs         []string
 	Type        string
 	Kind        string
 	Environment string

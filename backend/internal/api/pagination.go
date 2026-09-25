@@ -27,6 +27,7 @@ func parseListQuery(r *http.Request) (models.ListQuery, error) {
 		Page:        page,
 		PageSize:    pageSize,
 		Keyword:     values.Get("keyword"),
+		IPs:         parseIPList(values.Get("ips")),
 		Type:        values.Get("type"),
 		Kind:        values.Get("kind"),
 		Environment: values.Get("environment"),
@@ -37,6 +38,31 @@ func parseListQuery(r *http.Request) (models.ListQuery, error) {
 		Sort:        values.Get("sort"),
 		Order:       order,
 	}, nil
+}
+
+func parseIPList(raw string) []string {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', '，', ';', '；', '、', '\n', '\r', '\t', ' ':
+			return true
+		default:
+			return false
+		}
+	})
+	seen := make(map[string]struct{}, len(fields))
+	ips := make([]string, 0, len(fields))
+	for _, field := range fields {
+		ip := strings.ToLower(strings.TrimSpace(field))
+		if ip == "" {
+			continue
+		}
+		if _, ok := seen[ip]; ok {
+			continue
+		}
+		seen[ip] = struct{}{}
+		ips = append(ips, ip)
+	}
+	return ips
 }
 
 func positiveQueryInt(raw string, fallback int) (int, error) {

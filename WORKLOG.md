@@ -1,5 +1,52 @@
 # WORKLOG.md
 
+## 2026-09-25 - 折叠侧栏品牌间距与文字
+
+- 折叠侧栏的品牌区域改为 Logo 在上、OpsCore 文字在下，并将品牌区与菜单展开按钮间距调整为 20px，保留 82px 侧栏宽度。
+- Playwright 回归检查折叠状态图标、品牌文字和品牌区/展开按钮间距。
+- `cd frontend && npm run test:unit`（37 项）、`npm run lint`、`npm run build` 通过；`ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 的 10 项 Chromium 检查全部通过。
+- `cd deploy && docker compose up --build --pull never -d` 重建成功，浏览器确认首页折叠侧栏的 logo 可见；前后端和 PostgreSQL 均 healthy，浏览器控制台无错误。
+- `git diff --check` 通过。
+
+## 2026-09-25 - Copilot 长对话滚动与刷新恢复
+
+- Copilot 聊天窗使用固定视口高度，长回复限制在消息区域纵向滚动；标题栏和输入区不随消息变长而被推出视口，窄屏窗口高度仍受视口边界约束。
+- 对话消息按登录用户保存到 `sessionStorage`，刷新后恢复最近 60 条；不同账号彼此隔离，不保存未完成的请求状态，存储异常不会影响聊天使用。
+- 新增会话存储单元测试，以及 Playwright 长回复布局/滚动和刷新后恢复检查。
+- `cd frontend && npm run test:unit`（37 项）、`npm run lint`、`npm run build` 通过；`ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 的 10 项 Chromium 检查全部通过，含 120 条回复滚动和刷新恢复验证。
+- `cd deploy && docker compose up --build --pull never -d` 构建并启动成功，前端、后端和 PostgreSQL 均 healthy；浏览器在桌面和 390×844 视口检查窗口边界及输入区可见。
+- `git diff --check` 通过。Docker 镜像使用本地已缓存的基础镜像构建。
+
+## 2026-09-25 - 折叠导航入口与 Copilot 回复排版
+
+- 修复桌面侧栏折叠时栏目图标为无操作装饰元素的问题：一期栏目图标现在是有可访问名称的按钮，点击后展开子页面导航。
+- Copilot 回复从纯文本显示改为安全 Markdown 呈现，支持标题、段落、粗体/斜体、行内代码、列表、表格、引用和围栏代码块；HTML 内容仍显示为文本，不会执行。
+- 新增 Markdown 解析单元测试和 Playwright 回归，覆盖各一级栏目从折叠侧栏展开并进入一期页面、Copilot 表格/代码/列表渲染与 HTML 不执行。
+- `cd frontend && npm run test:unit`（34 项）、`npm run lint`、`npm run build` 通过；`ADMIN_PASSWORD='OpsCore2026' npm run test:e2e` 的 9 项 Chromium 检查全部通过，包含多 IP 和 CSV 批量操作覆盖。
+- `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 通过；`cd deploy && docker compose up --build -d` 重建后前端、后端和 PostgreSQL 均 healthy；`ADMIN_USERNAME=admin ADMIN_PASSWORD='OpsCore2026' scripts/smoke-api.sh` 全流程通过。
+- `git diff --check` 通过。E2E 需允许 Playwright 连接本机 Compose 服务；API Smoke 需允许访问 Docker socket。
+
+## 2026-09-24 - AI Copilot 上游 503 诊断
+
+- 对照发现模型连接测试只发送 `ping` 并请求 1 个 token；实际聊天会附带已授权上下文并按配置请求输出长度，因此探测成功不能保证完整生成请求也成功。
+- 聊天接口此前只显示上游状态码，丢弃模型返回的错误摘要；现在会显示经过 API Key 清洗且最多 220 字符的上游诊断信息，空错误正文仍显示通用服务状态提示。
+- 新增后端回归测试，覆盖 HTTP 503 错误摘要显示和 API Key 不泄露。
+- `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...`、API Smoke 全流程通过；Docker Compose 重建后前后端和 PostgreSQL 均 healthy，前端 HTTP 200，后端健康接口返回 `ok`。
+- 用户明确授权后，通过当前启用的外部 NVIDIA 模型完成一次真实问答复现，返回 HTTP 200 和完整答案；本次未重现 503，原故障暂不能确定为持续性配置问题。
+- 后续收到 NVIDIA 连接测试 `Client.Timeout exceeded while awaiting headers` 报错，确认测试客户端原超时仅 8 秒而聊天为 45 秒；现连接探测与聊天统一使用 45 秒上限，并新增客户端超时配置回归测试。
+- 超时调整后 `GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 和 API Smoke 通过；Docker Compose 重建后前后端和 PostgreSQL 均 healthy，后端健康接口返回 `ok`。
+
+## 2026-09-24 - 资产多 IP 查询
+
+- 资产台账和中间件/数据库实例高级搜索均新增多 IP 输入，接受空格、逗号、顿号、分号和换行分隔；资产 IPv4/IPv6 字段和实例访问端点按完整 IP 匹配。
+- 两个资产管理页面均提供 CSV 模板下载、最多 500 行批量导入和跨分页所选记录导出；导入逐行反馈失败并下载错误报告，资产编号冲突提示后沿用后端 upsert 更新。
+- CSV 仅包含业务基础字段，不导入或导出凭据；导入仍通过现有受 RBAC 与审计保护的 API 完成。
+- 已同步更新 `AGENTS.md` 和 `README.md`，记录功能行为、导入边界和后续维护约定。
+- 新增 `frontend/tests/bulk-data.test.js` 与后端多 IP 参数解析回归用例；新增 `frontend/e2e/asset-bulk-data.spec.js`，覆盖资产和实例页的精确多 IP 搜索、批量 CSV 导入与所选导出。
+- 资产与实例列表新增逐项/本页全选、跨页选择、已选计数、清除选择、所选 CSV 导出和有权限确认保护的批量删除。
+- `cd frontend && npm run test:unit`（32 项）、`npm run lint`、`npm run build`、`GOCACHE=/Users/mac/Desktop/work/OpsCore/.cache/go-build go test ./...` 和完整 Playwright E2E（7 项）通过；E2E 覆盖所选导出只包含勾选记录、批量删除确认，以及资产和实例 CSV 流程；API Smoke 全流程通过。
+- Docker Compose 已按最新代码重建，前端、后端、PostgreSQL 均为 healthy；前端返回 HTTP 200，后端健康接口返回 `ok`；`git diff --check` 通过。
+
 ## 2026-07-14 - README 一期技术架构图
 
 - 在 README“技术栈”标题下增加 GitHub Mermaid 一期技术架构图，采用 OpsCore 平台边界和纵向数据链路表达。

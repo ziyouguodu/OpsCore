@@ -78,6 +78,13 @@ func TestCopilotConnectionBuildsCompatibleProbeWithAuthorization(t *testing.T) {
 	}
 }
 
+func TestCopilotConnectionUsesGenerationRequestTimeout(t *testing.T) {
+	client := newCopilotHTTPClient("compatible")
+	if client.Timeout != 45*time.Second {
+		t.Fatalf("expected connection test timeout to match the 45-second generation timeout, got %s", client.Timeout)
+	}
+}
+
 func TestCopilotConnectionRequiresAPIKeyForHostedProvider(t *testing.T) {
 	store := &mutationStore{
 		userProfile: models.User{ID: 1, Username: "admin", Roles: []string{auth.RoleSuperAdmin}},
@@ -365,6 +372,30 @@ func TestCopilotChatUsesConfiguredLocalModelForOpsEngineer(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "建议先确认支付服务影响范围") {
 		t.Fatalf("expected model answer, got %s", rec.Body.String())
+	}
+}
+
+func TestCopilotChatIncludesSanitizedProviderErrorDetails(t *testing.T) {
+	const apiKey = "nvidia-test-secret"
+	modelService := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"model is overloaded; credential `+apiKey+`"}`, http.StatusServiceUnavailable)
+	}))
+	defer modelService.Close()
+
+	answer, _, _, err := callCopilotModel(context.Background(), models.CopilotConfig{
+		Provider: "local", LocalEndpoint: modelService.URL, LocalModel: "ops-test",
+	}, apiKey, "status?", copilotAuthorizedContext{})
+	if err == nil {
+		t.Fatal("expected an upstream service error")
+	}
+	if answer != "" {
+		t.Fatalf("expected no answer, got %q", answer)
+	}
+	if !strings.Contains(err.Error(), "HTTP 503") || !strings.Contains(err.Error(), "model is overloaded") {
+		t.Fatalf("expected the upstream status and useful error detail, got %q", err)
+	}
+	if strings.Contains(err.Error(), apiKey) {
+		t.Fatalf("provider error must not expose the API key: %q", err)
 	}
 }
 

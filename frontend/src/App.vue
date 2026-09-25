@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { api, clearToken, getToken, login as loginApi, setSessionExpiredHandler } from './api'
 import { copilotProviders, menuPermissionRows, permissionRows, roleCards } from './app-config'
 import AssetView from './components/AssetView.vue'
+import { bulkSchemas, downloadText, parseCsv, toCsv } from './bulk-data'
 import AuditView from './components/AuditView.vue'
 import AuthView from './components/AuthView.vue'
 import CopilotSettingsView from './components/CopilotSettingsView.vue'
@@ -37,6 +38,12 @@ const { activeView, permissionTab, goToView } = useWorkspaceRoute({
     if (clearFeedback) error.value = ''
   }
 })
+const auth = reactive({
+  token: getToken(),
+  user: null,
+  username: '',
+  password: ''
+})
 const {
   open: copilotOpen,
   expanded: copilotExpanded,
@@ -45,8 +52,14 @@ const {
   busy: copilotBusy,
   hide: hideCopilot,
   toggleSize: toggleCopilotSize,
+  setUserID: setCopilotUserID,
   send: askCopilot
 } = useCopilotChat()
+watch(
+  () => auth.user?.id || auth.user?.uid || auth.user?.userID || auth.user?.UserID || '',
+  setCopilotUserID,
+  { immediate: true }
+)
 const sidebarCollapsed = ref(true)
 const mobileNavOpen = ref(false)
 const loading = ref(false)
@@ -59,7 +72,11 @@ const selectedAsset = ref(null)
 const selectedMiddleware = ref(null)
 const selectedTask = ref(null)
 const selectedIncident = ref(null)
+const selectedAssetItems = ref([])
+const selectedMiddlewareItems = ref([])
 const assetFormOpen = ref(false)
+const assetBulkBusy = ref(false)
+const middlewareBulkBusy = ref(false)
 const middlewareFormOpen = ref(false)
 const taskFormOpen = ref(false)
 const incidentFormOpen = ref(false)
@@ -75,12 +92,6 @@ const middlewareCredentialReveal = reactive({ password: '', revealed: false })
 const middlewareCredentialMessage = ref('')
 const middlewareFormCredential = reactive({ loginUrl: '', username: '', secret: '', notes: '' })
 const credentialVerification = reactive({ hasPassword: false, password: '', confirm: '', message: '' })
-const auth = reactive({
-  token: getToken(),
-  user: null,
-  username: '',
-  password: ''
-})
 const passwordInit = reactive({
   currentPassword: '',
   newPassword: '',
@@ -186,8 +197,8 @@ const copilotConnection = reactive({
   latencyMs: null,
   statusCode: null
 })
-const assetFilters = reactive({ keyword: '', type: '', environment: '', business: '', networkZone: '', advanced: false })
-const middlewareFilters = reactive({ keyword: '', kind: '', environment: '', business: '', networkZone: '', status: '', advanced: false })
+const assetFilters = reactive({ keyword: '', ips: '', type: '', environment: '', business: '', networkZone: '', advanced: false })
+const middlewareFilters = reactive({ keyword: '', ips: '', kind: '', environment: '', business: '', networkZone: '', status: '', advanced: false })
 const assetPager = reactive({ page: 1, pageSize: 10 })
 const middlewarePager = reactive({ page: 1, pageSize: 10 })
 const taskPager = reactive({ page: 1, pageSize: 10 })
@@ -211,6 +222,8 @@ const canWriteAssets = computed(() => {
   const roles = auth.user?.roles || auth.user?.Roles || []
   return roles.includes('super_admin') || roles.includes('ops_engineer')
 })
+const canBulkDeleteAssets = computed(() => selectedAssetItems.value.length > 0 && selectedAssetItems.value.every(canDeleteAsset))
+const canBulkDeleteMiddleware = computed(() => canWriteAssets.value && selectedMiddlewareItems.value.length > 0 && selectedMiddlewareItems.value.every((item) => !isSampleRecord(item)))
 const canWriteOncall = computed(() => {
   const roles = auth.user?.roles || auth.user?.Roles || []
   return roles.includes('super_admin')
@@ -232,6 +245,56 @@ function canDeleteAsset(asset) {
   if (!asset) return false
   if (isSampleRecord(asset)) return false
   return isSuperAdmin() || (asset.createdBy && asset.createdBy === currentUserID())
+}
+
+function toggleSelection(selection, item) {
+  const index = selection.value.findIndex((selected) => selected.id === item.id)
+  if (index >= 0) {
+    selection.value = selection.value.filter((selected) => selected.id !== item.id)
+    return
+  }
+  if (selection.value.length >= 500) {
+    notify('最多可同时选择 500 条记录')
+    return
+  }
+  selection.value = [...selection.value, item]
+}
+
+function setPageSelection(selection, items, checked) {
+  const pageIds = new Set(items.map((item) => item.id))
+  if (!checked) {
+    selection.value = selection.value.filter((item) => !pageIds.has(item.id))
+    return
+  }
+  const selectedIds = new Set(selection.value.map((item) => item.id))
+  const additions = items.filter((item) => !selectedIds.has(item.id))
+  const remaining = Math.max(0, 500 - selection.value.length)
+  selection.value = [...selection.value, ...additions.slice(0, remaining)]
+  if (additions.length > remaining) notify('最多可同时选择 500 条记录，已选择前 500 条')
+}
+
+function selectAssetPage(checked, items) {
+  setPageSelection(selectedAssetItems, items, checked)
+}
+
+function selectMiddlewarePage(checked, items) {
+  setPageSelection(selectedMiddlewareItems, items, checked)
+}
+
+function toggleAssetSelection(item) {
+  toggleSelection(selectedAssetItems, item)
+}
+
+function toggleMiddlewareSelection(item) {
+  toggleSelection(selectedMiddlewareItems, item)
+}
+
+function clearAssetSelection() {
+  selectedAssetItems.value = []
+}
+
+function clearMiddlewareSelection() {
+  selectedMiddlewareItems.value = []
 }
 
 function isSampleRecord(item) {
@@ -289,12 +352,12 @@ function uniqueOptions(items, field) {
 }
 
 function resetAssetFilters() {
-  Object.assign(assetFilters, { keyword: '', type: '', environment: '', business: '', networkZone: '', advanced: false })
+  Object.assign(assetFilters, { keyword: '', ips: '', type: '', environment: '', business: '', networkZone: '', advanced: false })
   assetPager.page = 1
 }
 
 function resetMiddlewareFilters() {
-  Object.assign(middlewareFilters, { keyword: '', kind: '', environment: '', business: '', networkZone: '', status: '', advanced: false })
+  Object.assign(middlewareFilters, { keyword: '', ips: '', kind: '', environment: '', business: '', networkZone: '', status: '', advanced: false })
   middlewarePager.page = 1
 }
 
@@ -611,6 +674,7 @@ async function deleteAsset(asset) {
     try {
       await api(`/assets/${asset.id}`, { method: 'DELETE' })
       state.assets = state.assets.filter((item) => item.id !== asset.id)
+      selectedAssetItems.value = selectedAssetItems.value.filter((item) => item.id !== asset.id)
       if (selectedAsset.value?.id === asset.id) {
         selectedAsset.value = null
       }
@@ -745,6 +809,7 @@ async function deleteMiddleware(item) {
     try {
       await api(`/middleware/${item.id}`, { method: 'DELETE' })
       state.middleware = state.middleware.filter((entry) => entry.id !== item.id)
+      selectedMiddlewareItems.value = selectedMiddlewareItems.value.filter((entry) => entry.id !== item.id)
       if (selectedMiddleware.value?.id === item.id) {
         selectedMiddleware.value = null
         resetMiddlewareCredentialState()
@@ -762,6 +827,163 @@ async function deleteMiddleware(item) {
 function exportMiddleware(item) {
   if (!item) return
   exportJSON(`${item.name || `middleware-${item.id}`}.json`, item)
+}
+
+function downloadBulkTemplate(resource) {
+  downloadText(`${resource}-import-template.csv`, toCsv([], bulkSchemas[resource]))
+}
+
+async function importCsvFile(resource, file) {
+  const busy = resource === 'assets' ? assetBulkBusy : middlewareBulkBusy
+  const label = resource === 'assets' ? '资产' : '实例'
+  busy.value = true
+  error.value = ''
+  try {
+    const records = parseCsv(await file.text(), bulkSchemas[resource])
+    if (records.length > 500) throw new Error('单次最多导入 500 行，请拆分文件后重试')
+    const confirmed = await requestConfirm({
+      title: `确认批量导入${label}`,
+      message: resource === 'assets'
+        ? `将处理 ${records.length} 行基础资产数据。相同资产编号会更新现有资产；导入文件不包含凭据。`
+        : `将创建 ${records.length} 条实例记录。导入文件不包含凭据。`,
+      target: file.name,
+      confirmLabel: '开始导入'
+    }, async () => {})
+    if (!confirmed) return
+    let cursor = 0
+    const failures = []
+    let successCount = 0
+    const worker = async () => {
+      while (cursor < records.length) {
+        const record = records[cursor++]
+        const { __row, ...payload } = record
+        if (resource === 'middleware' && payload.assetId) {
+          const assetId = Number(payload.assetId)
+          if (!Number.isSafeInteger(assetId) || assetId < 1) {
+            failures.push({ row: __row, message: '关联资产 ID 必须是正整数' })
+            continue
+          }
+          payload.assetId = assetId
+        } else if (resource === 'middleware') {
+          delete payload.assetId
+        }
+        try {
+          await api(`/${resource}`, { method: 'POST', body: JSON.stringify(payload) })
+          successCount += 1
+        } catch (err) {
+          failures.push({ row: __row, message: err.message })
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(5, records.length) }, worker))
+    if (successCount) {
+      if (resource === 'assets') await Promise.all([loadAssetPage(), loadDashboard()])
+      else await Promise.all([loadMiddlewarePage(), loadDashboard()])
+    }
+    if (failures.length) {
+      const rowsByNumber = new Map(records.map((record) => [record.__row, record]))
+      const reportSchema = [['__row', 'CSV行号'], ['__error', '失败原因'], ...bulkSchemas[resource]]
+      const reportRows = failures.map(({ row, message }) => ({ __row: row, __error: message, ...rowsByNumber.get(row) }))
+      downloadText(`${resource}-import-errors.csv`, toCsv(reportRows, reportSchema))
+      error.value = `批量导入${label}完成：成功 ${successCount} 条，失败 ${failures.length} 条。${failures.slice(0, 5).map(({ row, message }) => `第 ${row} 行：${message}`).join('；')}`
+      notify('失败行明细已下载为 CSV')
+    } else {
+      notify(`批量导入${label}成功，共 ${successCount} 条`)
+    }
+  } catch (err) {
+    error.value = `批量导入${label}失败：${err.message}`
+  } finally {
+    busy.value = false
+  }
+}
+
+function exportSelected(resource, items) {
+  if (!items.length) {
+    error.value = '请先选择需要导出的记录'
+    return
+  }
+  const prefix = resource === 'assets' ? 'assets-selected' : 'middleware-selected'
+  downloadText(`${prefix}-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(items, bulkSchemas[resource]))
+  notify(`已导出所选 ${items.length} 条记录`)
+}
+
+async function deleteSelected(resource, selection) {
+  const items = [...selection.value]
+  if (!items.length) return
+  const assets = resource === 'assets'
+  if (assets && !items.every(canDeleteAsset)) {
+    error.value = '所选资产包含无删除权限的记录，无法批量删除'
+    return
+  }
+  if (!assets && (!canWriteAssets.value || items.some((item) => isSampleRecord(item)))) {
+    error.value = '当前角色或所选样例记录不支持批量删除'
+    return
+  }
+  const label = assets ? '资产' : '实例'
+  const busy = assets ? assetBulkBusy : middlewareBulkBusy
+  await requestConfirm({
+    title: `批量删除${label}`,
+    message: `此操作不可恢复，将尝试删除所选的 ${items.length} 条${label}记录。关联凭据也会一并清理。`,
+    target: items.slice(0, 5).map((item) => assets ? item.assetNo : item.name).join('、') + (items.length > 5 ? ` 等共 ${items.length} 项` : ''),
+    confirmLabel: `确认删除 ${items.length} 项`
+  }, async () => {
+    busy.value = true
+    error.value = ''
+    const deleted = []
+    const failures = []
+    let cursor = 0
+    const worker = async () => {
+      while (cursor < items.length) {
+        const item = items[cursor++]
+        try {
+          await api(`/${resource}/${item.id}`, { method: 'DELETE' })
+          deleted.push(item)
+        } catch (err) {
+          failures.push({ item, message: err.message })
+        }
+      }
+    }
+    try {
+      await Promise.all(Array.from({ length: Math.min(5, items.length) }, worker))
+      const deletedIds = new Set(deleted.map((item) => item.id))
+      selection.value = selection.value.filter((item) => !deletedIds.has(item.id))
+      if (assets) {
+        state.assets = state.assets.filter((item) => !deletedIds.has(item.id))
+        if (selectedAsset.value && deletedIds.has(selectedAsset.value.id)) selectedAsset.value = null
+        await Promise.all([loadAssetPage(), loadDashboard()])
+      } else {
+        state.middleware = state.middleware.filter((item) => !deletedIds.has(item.id))
+        if (selectedMiddleware.value && deletedIds.has(selectedMiddleware.value.id)) {
+          selectedMiddleware.value = null
+          resetMiddlewareCredentialState()
+        }
+        await Promise.all([loadMiddlewarePage(), loadDashboard()])
+      }
+      if (failures.length) {
+        error.value = `已删除 ${deleted.length} 项，${failures.length} 项失败：${failures.slice(0, 5).map(({ item, message }) => `${assets ? item.assetNo : item.name}：${message}`).join('；')}`
+      } else {
+        notify(`已批量删除 ${deleted.length} 条${label}记录`)
+      }
+    } finally {
+      busy.value = false
+    }
+  })
+}
+
+function deleteSelectedAssets() {
+  return deleteSelected('assets', selectedAssetItems)
+}
+
+function deleteSelectedMiddleware() {
+  return deleteSelected('middleware', selectedMiddlewareItems)
+}
+
+function importAssetsFile(file) {
+  return importCsvFile('assets', file)
+}
+
+function importMiddlewareFile(file) {
+  return importCsvFile('middleware', file)
 }
 
 function chooseAsset(asset) {
@@ -1452,14 +1674,14 @@ const { schedule: reloadList } = useDeferredLoader(
 )
 
 watch(
-  () => [assetFilters.keyword, assetFilters.type, assetFilters.environment, assetFilters.business, assetFilters.networkZone],
+  () => [assetFilters.keyword, assetFilters.ips, assetFilters.type, assetFilters.environment, assetFilters.business, assetFilters.networkZone],
   () => {
     if (assetPager.page !== 1) assetPager.page = 1
     else reloadList(loadAssetPage, '资产列表', 250)
   }
 )
 watch(
-  () => [middlewareFilters.keyword, middlewareFilters.kind, middlewareFilters.environment, middlewareFilters.business, middlewareFilters.networkZone, middlewareFilters.status],
+  () => [middlewareFilters.keyword, middlewareFilters.ips, middlewareFilters.kind, middlewareFilters.environment, middlewareFilters.business, middlewareFilters.networkZone, middlewareFilters.status],
   () => {
     if (middlewarePager.page !== 1) middlewarePager.page = 1
     else reloadList(loadMiddlewarePage, '实例列表', 250)
@@ -1561,6 +1783,8 @@ onUnmounted(() => {
 
         <AssetView
           v-if="activeView === 'cmdb'"
+          :bulk-busy="assetBulkBusy"
+          :can-bulk-delete="canBulkDeleteAssets"
           :businesses="assetBusinesses"
           :can-delete="canDeleteAsset"
           :can-manage-credentials="canManageCredentials"
@@ -1579,6 +1803,7 @@ onUnmounted(() => {
           :page-size="assetPager.pageSize"
           :paged-assets="pagedAssets"
           :selected-asset="selectedAsset"
+          :selected-items="selectedAssetItems"
           :spec="assetSpec"
           :total="listMeta.assets.total"
           @choose="chooseAsset"
@@ -1586,6 +1811,13 @@ onUnmounted(() => {
           @delete="deleteAsset"
           @edit="editAsset"
           @export-item="exportAsset"
+          @import-file="importAssetsFile"
+          @export-selected="exportSelected('assets', selectedAssetItems)"
+          @delete-selected="deleteSelectedAssets"
+          @clear-selection="clearAssetSelection"
+          @toggle-select="toggleAssetSelection"
+          @select-page="selectAssetPage"
+          @download-template="downloadBulkTemplate('assets')"
           @hide-detail="hideAssetDetail"
           @load-credential="loadCredential"
           @open-form="openAssetForm"
@@ -1599,6 +1831,8 @@ onUnmounted(() => {
 
         <MiddlewareView
           v-if="activeView === 'middleware'"
+          :bulk-busy="middlewareBulkBusy"
+          :can-bulk-delete="canBulkDeleteMiddleware"
           :associated-asset-name="associatedAssetName"
           :businesses="middlewareBusinesses"
           :can-manage-credentials="canManageCredentials"
@@ -1617,12 +1851,20 @@ onUnmounted(() => {
           :page-size="middlewarePager.pageSize"
           :paged-items="pagedMiddleware"
           :selected-item="selectedMiddleware"
+          :selected-items="selectedMiddlewareItems"
           :total="listMeta.middleware.total"
           @choose="chooseMiddleware"
           @close-form="closeMiddlewareForm"
           @delete="deleteMiddleware"
           @edit="editMiddleware"
           @export-item="exportMiddleware"
+          @import-file="importMiddlewareFile"
+          @export-selected="exportSelected('middleware', selectedMiddlewareItems)"
+          @delete-selected="deleteSelectedMiddleware"
+          @clear-selection="clearMiddlewareSelection"
+          @toggle-select="toggleMiddlewareSelection"
+          @select-page="selectMiddlewarePage"
+          @download-template="downloadBulkTemplate('middleware')"
           @hide-detail="hideMiddlewareDetail"
           @load-credential="loadMiddlewareCredential"
           @open-form="openMiddlewareForm"

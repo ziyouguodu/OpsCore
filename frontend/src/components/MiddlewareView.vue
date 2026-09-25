@@ -1,11 +1,15 @@
 <script setup>
+import { computed } from 'vue'
 import PaginationBar from './PaginationBar.vue'
+import BulkDataTools from './BulkDataTools.vue'
 
-defineProps({
+const props = defineProps({
   associatedAssetName: { type: Function, required: true },
   businesses: { type: Array, default: () => [] },
   canManageCredentials: { type: Boolean, default: false },
   canWrite: { type: Boolean, default: false },
+  bulkBusy: { type: Boolean, default: false },
+  canBulkDelete: { type: Boolean, default: false },
   credential: { type: Object, required: true },
   credentialMessage: { type: String, default: '' },
   credentialReveal: { type: Object, required: true },
@@ -20,6 +24,7 @@ defineProps({
   pageSize: { type: Number, required: true },
   pagedItems: { type: Array, default: () => [] },
   selectedItem: { type: Object, default: null },
+  selectedItems: { type: Array, default: () => [] },
   total: { type: Number, default: 0 }
 })
 
@@ -29,6 +34,13 @@ const emit = defineEmits([
   'delete',
   'edit',
   'export-item',
+  'import-file',
+  'export-selected',
+  'delete-selected',
+  'clear-selection',
+  'toggle-select',
+  'select-page',
+  'download-template',
   'hide-detail',
   'load-credential',
   'open-form',
@@ -39,6 +51,15 @@ const emit = defineEmits([
   'update:page',
   'update:pageSize'
 ])
+
+const selectedIds = computed(() => new Set(props.selectedItems.map((item) => item.id)))
+const pageSelectionCount = computed(() => props.pagedItems.filter((item) => selectedIds.value.has(item.id)).length)
+const pageFullySelected = computed(() => props.pagedItems.length > 0 && pageSelectionCount.value === props.pagedItems.length)
+const pagePartiallySelected = computed(() => pageSelectionCount.value > 0 && !pageFullySelected.value)
+
+function isSelected(id) {
+  return selectedIds.value.has(id)
+}
 
 const middlewareKinds = ['MySQL', 'Redis', 'Kafka', 'PostgreSQL', '达梦', 'Nginx', 'ElasticSearch', 'Nacos', 'RocketMQ', 'MinIO']
 
@@ -58,9 +79,9 @@ function closeEditorOnFocusOut(event) {
   <section class="panel" role="region" aria-label="实例管理工作区">
     <div class="section-head actions-only">
       <div class="page-actions">
-        <button disabled><span class="btn-icon">↥</span>导入</button>
         <button v-if="selectedItem" @click="$emit('export-item', selectedItem)"><span class="btn-icon">↧</span>导出</button>
         <button class="primary" :disabled="!canWrite" @click="$emit('open-form')"><span class="btn-icon">＋</span>新增实例</button>
+        <BulkDataTools :can-write="canWrite" :busy="bulkBusy" :can-bulk-delete="canBulkDelete" :selected-count="selectedItems.length" label="实例" @import-file="$emit('import-file', $event)" @export-selected="$emit('export-selected')" @delete-selected="$emit('delete-selected')" @clear-selection="$emit('clear-selection')" @download-template="$emit('download-template')" />
       </div>
     </div>
 
@@ -79,6 +100,7 @@ function closeEditorOnFocusOut(event) {
             <button class="link" @click="filters.advanced = !filters.advanced">{{ filters.advanced ? '收起高级搜索' : '高级搜索' }}</button>
           </div>
           <div v-if="filters.advanced" class="query-extra">
+            <textarea v-model="filters.ips" aria-label="多个 IP 地址" rows="2" placeholder="多个 IP 地址，支持空格、逗号或换行分隔" @input="resetPage"></textarea>
             <select v-model="filters.business" aria-label="所属业务" @change="resetPage">
               <option value="">全部所属业务</option>
               <option v-for="item in businesses" :key="item">{{ item }}</option>
@@ -123,13 +145,13 @@ function closeEditorOnFocusOut(event) {
 
         <div class="table-wrap">
           <table>
-            <thead><tr><th>实例名称</th><th>类型</th><th>环境</th><th>网络区域</th><th>访问地址</th><th>所属业务</th><th>关联资产</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th class="selection-cell"><input type="checkbox" aria-label="选择本页实例" :checked="pageFullySelected" :indeterminate="pagePartiallySelected" @click.stop @change="$emit('select-page', $event.target.checked, pagedItems)" /></th><th>实例名称</th><th>类型</th><th>环境</th><th>网络区域</th><th>访问地址</th><th>所属业务</th><th>关联资产</th><th>状态</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="item in pagedItems" :key="item.id" :class="{ selected: selectedItem?.id === item.id }" class="clickable-row" tabindex="0" @click="$emit('choose', item)" @keyup.enter="$emit('choose', item)" @keyup.space.prevent="$emit('choose', item)">
-                <td>{{ item.name }}</td><td>{{ item.kind }}</td><td>{{ item.environment }}</td><td>{{ item.networkZone || '-' }}</td><td>{{ item.endpoint }}</td><td>{{ item.business }}</td><td>{{ associatedAssetName(item) }}</td><td>{{ item.status }}</td>
+                <td class="selection-cell"><input type="checkbox" :aria-label="`选择实例 ${item.name || item.id}`" :checked="isSelected(item.id)" @click.stop @change="$emit('toggle-select', item)" /></td><td>{{ item.name }}</td><td>{{ item.kind }}</td><td>{{ item.environment }}</td><td>{{ item.networkZone || '-' }}</td><td>{{ item.endpoint }}</td><td>{{ item.business }}</td><td>{{ associatedAssetName(item) }}</td><td>{{ item.status }}</td>
                 <td class="row-actions"><button class="link" @click.stop="$emit('choose', item)">详情</button><button class="link" :disabled="!canWrite || isSample(item)" @click.stop="$emit('edit', item)">编辑</button><button class="link danger-text" :disabled="!canWrite || isSample(item)" @click.stop="$emit('delete', item)">删除</button></td>
               </tr>
-              <tr v-if="!pagedItems.length"><td colspan="9" class="empty">未找到符合条件的实例</td></tr>
+              <tr v-if="!pagedItems.length"><td colspan="10" class="empty">未找到符合条件的实例</td></tr>
             </tbody>
           </table>
         </div>

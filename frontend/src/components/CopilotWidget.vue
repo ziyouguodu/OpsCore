@@ -1,6 +1,7 @@
 <script setup>
 import { nextTick, ref, watch } from 'vue'
 import SvgIcon from './SvgIcon.vue'
+import CopilotMessage from './CopilotMessage.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -12,6 +13,7 @@ const props = defineProps({
 
 const emit = defineEmits(['hide', 'toggle-size', 'send', 'update:question'])
 const questionInput = ref(null)
+const messagesBody = ref(null)
 let opener = null
 
 watch(() => props.open, async (open) => {
@@ -25,6 +27,12 @@ watch(() => props.open, async (open) => {
   await nextTick()
   questionInput.value?.focus()
 })
+
+watch(() => props.messages, async () => {
+  await nextTick()
+  const body = messagesBody.value
+  if (body) body.scrollTop = body.scrollHeight
+}, { deep: true, flush: 'post' })
 </script>
 
 <template>
@@ -46,8 +54,11 @@ watch(() => props.open, async (open) => {
         </button>
       </div>
     </header>
-    <div class="copilot-body" aria-live="polite">
-      <div v-for="(message, index) in messages" :key="index" :class="['chat', message.role, { pending: message.pending }]">{{ message.text }}</div>
+    <div ref="messagesBody" class="copilot-body" aria-live="polite">
+      <div v-for="(message, index) in messages" :key="index" :class="['chat', message.role, { pending: message.pending }]">
+        <CopilotMessage v-if="message.role === 'ai' && !message.pending" :text="message.text" />
+        <span v-else>{{ message.text }}</span>
+      </div>
     </div>
     <div class="copilot-input">
       <input
