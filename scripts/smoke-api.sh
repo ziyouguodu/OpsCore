@@ -6,6 +6,64 @@ COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/deploy/docker-compose.yml}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-ChangeMe123!}"
 CREDENTIAL_VERIFY_PASSWORD="${CREDENTIAL_VERIFY_PASSWORD:-$ADMIN_PASSWORD}"
+CREDENTIAL_SNAPSHOT=
+
+restore_credential_verification() {
+  smoke_exit_code=$?
+  trap - 0 HUP INT TERM
+  if [ -n "$CREDENTIAL_SNAPSHOT" ]; then
+    if docker compose -f "$COMPOSE_FILE" exec -T postgres sh -s -- "$CREDENTIAL_SNAPSHOT" <<'RESTORE'
+set -eu
+snapshot="$1"
+if psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 <<SQL
+BEGIN;
+CREATE TEMP TABLE smoke_credential_setting (LIKE system_settings);
+\copy smoke_credential_setting (key, value, updated_at) FROM '$snapshot' WITH (FORMAT csv)
+DELETE FROM system_settings WHERE key='credential_verification_password_hash';
+INSERT INTO system_settings (key, value, updated_at)
+SELECT key, value, updated_at FROM smoke_credential_setting;
+COMMIT;
+SQL
+then
+  rm -f "$snapshot"
+else
+  exit 1
+fi
+RESTORE
+    then
+      echo "OK   credential verification setting restored"
+    else
+      echo "FAIL credential verification setting restore; protected snapshot retained" >&2
+      smoke_exit_code=1
+    fi
+  fi
+  exit "$smoke_exit_code"
+}
+trap restore_credential_verification 0
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+CREDENTIAL_SNAPSHOT=$(docker compose -f "$COMPOSE_FILE" exec -T postgres sh -s <<'BACKUP'
+set -eu
+umask 077
+snapshot=$(mktemp /tmp/opscore-smoke-credential.XXXXXX)
+chmod 600 "$snapshot"
+if psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 <<SQL
+\copy (SELECT key, value, updated_at FROM system_settings WHERE key='credential_verification_password_hash') TO '$snapshot' WITH (FORMAT csv)
+SQL
+then
+  printf '%s\n' "$snapshot"
+else
+  rm -f "$snapshot"
+  exit 1
+fi
+BACKUP
+) || {
+  echo "FAIL credential verification setting backup" >&2
+  exit 1
+}
+echo "OK   credential verification setting backed up"
 
 docker compose -f "$COMPOSE_FILE" exec -T \
   -e ADMIN_USERNAME="$ADMIN_USERNAME" \
@@ -58,7 +116,6 @@ request() {
 
   if [ "$LAST_STATUS" != "$expected" ]; then
     echo "FAIL $method $path expected $expected got ${LAST_STATUS:-no-status}" >&2
-    echo "$LAST_BODY" >&2
     if [ "$method" = "POST" ] && [ "$path" = "/api/auth/login" ] && [ "$expected" = "200" ] && [ "$LAST_STATUS" = "401" ]; then
       echo "HINT admin may already use an initialized password. Rerun with ADMIN_PASSWORD='your-current-password' scripts/smoke-api.sh" >&2
     fi
@@ -106,6 +163,16 @@ if printf '%s' "$LAST_BODY" | grep -q '"mustChangePassword":true'; then
 fi
 
 request GET /api/dashboard "" "$ADMIN_TOKEN" 200
+request GET /api/dashboard/workspace "" "$ADMIN_TOKEN" 200
+if ! printf '%s' "$LAST_BODY" | grep -q '"source":"real"'; then
+  echo "FAIL dashboard workspace must identify its live source" >&2
+  exit 1
+fi
+request GET '/api/dashboard/preview?period=today' "" "$ADMIN_TOKEN" 200
+if ! printf '%s' "$LAST_BODY" | grep -q '"source":"demo"'; then
+  echo "FAIL dashboard preview must identify its isolated demo source" >&2
+  exit 1
+fi
 for resource in assets middleware tasks incidents; do
   request GET "/api/$resource?page=1&pageSize=5&sort=updatedAt&order=desc" "" "$ADMIN_TOKEN" 200
   if ! printf '%s' "$LAST_BODY" | grep -q '"items":\[' || ! printf '%s' "$LAST_BODY" | grep -q '"pageCount":'; then
@@ -122,6 +189,9 @@ SMOKE_USER_ID=$(json_id id)
 request POST /api/auth/login "{\"username\":\"$ops_username\",\"password\":\"$ops_password\"}" "" 200
 OPS_TOKEN=$(json_string token)
 
+request GET /api/dashboard/workspace "" "$OPS_TOKEN" 200
+request GET '/api/dashboard/preview?period=7&system=payment' "" "$OPS_TOKEN" 200
+request GET '/api/dashboard/preview?period=custom&from=invalid&to=invalid' "" "$OPS_TOKEN" 400
 request POST /api/users "{\"username\":\"blocked_$stamp\",\"displayName\":\"Blocked\",\"password\":\"$ops_password\",\"roles\":[\"ops_engineer\"]}" "$OPS_TOKEN" 403
 request GET /api/duty-center "" "$OPS_TOKEN" 200
 request PUT /api/duty-center "{\"revision\":0,\"data\":{\"teams\":[],\"members\":[],\"schedules\":[],\"assignments\":{},\"currentPeople\":[],\"handovers\":[],\"escalation\":{\"name\":\"\",\"team\":\"\",\"severity\":\"\",\"levels\":[]}}}" "$OPS_TOKEN" 403

@@ -1,0 +1,10 @@
+services:
+  postgres:
+    image: ${POSTGRES16_ROLLBACK_IMAGE:-opscore-postgres16-rollback:20261014}
+    volumes: !override
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
+    external: true
+    name: ${POSTGRES16_VOLUME:-deploy_postgres-data}

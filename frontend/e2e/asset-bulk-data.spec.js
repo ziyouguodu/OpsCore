@@ -82,8 +82,15 @@ test('searches multiple IPs and imports/exports CSV in both asset workspaces', a
     expect(selectedAssetCsv).not.toContain(assetNos[1])
     await page.getByRole('button', { name: '清除选择' }).click()
 
+    const assetTemplatePromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载导入模板' }).click()
+    const assetTemplate = await readDownload(await assetTemplatePromise)
+    expect(assetTemplate).toContain('"IPv4（必填）"')
+    expect(assetTemplate).toContain('"状态（必填）"')
+    expect(assetTemplate).toContain('"资产编号"')
+    expect(assetTemplate.match(/（必填）/g)).toHaveLength(13)
     const importedAssetCsv = [
-      '资产编号,类型,厂商,CPU架构,SN,物理位置,所属业务,IPv4,IPv6,环境,操作系统,主机名,网络区域,CPU规格,内存规格,磁盘规格,部署信息,负责人,状态,所在宿主机',
+      assetTemplate,
       `${assetNos[2]},虚拟机,E2E,x86_64,SN-${assetNos[2]},E2E,E2E业务,198.51.100.101,,研发,Linux,${assetNos[2]},E2E区,2C,4GB,50GB,E2E测试,E2E,运行中,`
     ].join('\r\n')
     await page.getByLabel('导入资产 CSV 文件').setInputFiles({ name: 'assets.csv', mimeType: 'text/csv', buffer: Buffer.from(importedAssetCsv) })
@@ -125,8 +132,14 @@ test('searches multiple IPs and imports/exports CSV in both asset workspaces', a
     expect(selectedMiddlewareCsv).toContain(middlewareNames[1])
     await page.getByRole('button', { name: '清除选择' }).click()
 
+    const middlewareTemplatePromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: '下载导入模板' }).click()
+    const middlewareTemplate = await readDownload(await middlewareTemplatePromise)
+    expect(middlewareTemplate).toContain('"访问地址（必填）"')
+    expect(middlewareTemplate).toContain('"状态"')
+    expect(middlewareTemplate.match(/（必填）/g)).toHaveLength(7)
     const importedMiddlewareCsv = [
-      '实例名称,类型,版本,环境,网络区域,访问地址,所属业务,负责人,状态,关联资产ID',
+      middlewareTemplate,
       `${middlewareNames[2]},Redis,7,研发,E2E区,198.51.100.102:6379,E2E业务,E2E,运行中,`
     ].join('\r\n')
     await page.getByLabel('导入实例 CSV 文件').setInputFiles({ name: 'middleware.csv', mimeType: 'text/csv', buffer: Buffer.from(importedMiddlewareCsv) })

@@ -1,14 +1,14 @@
 export const bulkSchemas = {
   assets: [
-    ['assetNo', '资产编号'], ['type', '类型'], ['vendor', '厂商'], ['cpuArch', 'CPU架构'], ['sn', 'SN'],
-    ['location', '物理位置'], ['business', '所属业务'], ['ipv4', 'IPv4'], ['ipv6', 'IPv6'],
-    ['environment', '环境'], ['os', '操作系统'], ['hostname', '主机名'], ['networkZone', '网络区域'],
-    ['cpu', 'CPU规格'], ['memory', '内存规格'], ['disk', '磁盘规格'], ['deploymentInfo', '部署信息'],
-    ['owner', '负责人'], ['status', '状态'], ['hostMachine', '所在宿主机']
+    ['assetNo', '资产编号'], ['type', '类型', true], ['vendor', '厂商'], ['cpuArch', 'CPU架构', true], ['sn', 'SN'],
+    ['location', '物理位置'], ['business', '所属业务', true], ['ipv4', 'IPv4', true], ['ipv6', 'IPv6'],
+    ['environment', '环境', true], ['os', '操作系统', true], ['hostname', '主机名'], ['networkZone', '网络区域', true],
+    ['cpu', 'CPU规格', true], ['memory', '内存规格', true], ['disk', '磁盘规格', true], ['deploymentInfo', '部署信息', true],
+    ['owner', '负责人', true], ['status', '状态', true], ['hostMachine', '所在宿主机']
   ],
   middleware: [
-    ['name', '实例名称'], ['kind', '类型'], ['version', '版本'], ['environment', '环境'],
-    ['networkZone', '网络区域'], ['endpoint', '访问地址'], ['business', '所属业务'], ['owner', '负责人'],
+    ['name', '实例名称', true], ['kind', '类型', true], ['version', '版本'], ['environment', '环境', true],
+    ['networkZone', '网络区域', true], ['endpoint', '访问地址', true], ['business', '所属业务', true], ['owner', '负责人', true],
     ['status', '状态'], ['assetId', '关联资产ID']
   ]
 }
@@ -18,8 +18,8 @@ function csvCell(value) {
   return `"${text.replaceAll('"', '""')}"`
 }
 
-export function toCsv(items, schema) {
-  const rows = [schema.map(([, label]) => label)]
+export function toCsv(items, schema, { template = false } = {}) {
+  const rows = [schema.map(([, label, required]) => template && required ? `${label}（必填）` : label)]
   for (const item of items) rows.push(schema.map(([key]) => item[key] ?? ''))
   return `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`
 }
@@ -56,7 +56,7 @@ export function parseCsv(text, schema) {
   if (rows.length < 2) throw new Error('CSV 文件中没有可导入的数据行')
 
   const headers = rows[0].map((header) => header.trim())
-  const columns = schema.map(([key, label]) => headers.findIndex((header) => header === label || header === key))
+  const columns = schema.map(([key, label]) => headers.findIndex((header) => header === label || header === key || header === `${label}（必填）`))
   if (columns.every((index) => index < 0)) throw new Error('CSV 表头与当前导入模板不匹配')
   return rows.slice(1).map((values, index) => {
     const record = { __row: index + 2 }

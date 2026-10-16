@@ -52,6 +52,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/auth/me", s.requireAuth(http.HandlerFunc(s.me)))
 	mux.Handle("POST /api/auth/password", s.requireAuth(http.HandlerFunc(s.changePassword)))
 	mux.Handle("GET /api/dashboard", s.requireAuth(http.HandlerFunc(s.dashboard)))
+	mux.Handle("GET /api/dashboard/workspace", s.requireDashboardRead(http.HandlerFunc(s.dashboardWorkspace)))
+	mux.Handle("GET /api/dashboard/preview", s.requireDashboardRead(http.HandlerFunc(s.dashboardPreview)))
 	mux.Handle("GET /api/users", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.users)))
 	mux.Handle("GET /api/user-directory", s.requireAuth(http.HandlerFunc(s.userDirectory)))
 	mux.Handle("POST /api/users", s.requirePermission(auth.PermissionUserManage, http.HandlerFunc(s.users)))
@@ -368,7 +370,7 @@ func (s *Server) credentialVerification(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if err := s.store.SetCredentialVerificationPassword(r.Context(), body.Password); err != nil {
-			writeError(w, http.StatusBadRequest, err)
+			writeInternalError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"hasPassword": true})
@@ -417,9 +419,13 @@ func (s *Server) assetCredential(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ok, err := s.verifyCredentialRevealPassword(r.Context(), claims, body.Password)
-		if err != nil || !ok {
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if !ok {
 			s.credentialAttempts().Failure(limitKey)
-			writeError(w, http.StatusUnauthorized, errors.New("credential verification password is invalid"))
+			writeError(w, http.StatusForbidden, errors.New("credential verification password is invalid"))
 			return
 		}
 		s.credentialAttempts().Success(limitKey)
@@ -556,9 +562,13 @@ func (s *Server) middlewareCredential(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ok, err := s.verifyCredentialRevealPassword(r.Context(), claims, body.Password)
-		if err != nil || !ok {
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if !ok {
 			s.credentialAttempts().Failure(limitKey)
-			writeError(w, http.StatusUnauthorized, errors.New("credential verification password is invalid"))
+			writeError(w, http.StatusForbidden, errors.New("credential verification password is invalid"))
 			return
 		}
 		s.credentialAttempts().Success(limitKey)

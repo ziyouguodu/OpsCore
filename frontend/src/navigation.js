@@ -53,50 +53,30 @@ export const viewMeta = {
 
 export const menu = [
   { id: 'dashboard', label: '首页仪表盘', icon: 'dashboard', enabled: true },
-  {
-    label: '资产管理',
-    icon: 'asset',
-    children: [
-      { id: 'cmdb', label: '资产台账（CMDB）', icon: 'cmdb', enabled: true },
-      { id: 'middleware', label: '中间件与数据库', icon: 'database', enabled: true },
-      { label: '云资源管理', icon: 'cloud', enabled: false },
-      { label: '容器平台', icon: 'container', enabled: false }
-    ]
-  },
-  {
-    label: '协同与事件响应',
-    icon: 'collab',
-    children: [
-      { id: 'oncall', label: '值班管理', icon: 'calendar', enabled: true },
-      { id: 'tasks', label: '任务跟踪', icon: 'task', enabled: true },
-      { id: 'incidents', label: '事件管理', icon: 'incident', enabled: true }
-    ]
-  },
-  {
-    label: '权限管理',
-    icon: 'shield',
-    children: [
-      { id: 'permissions', label: '用户与角色', icon: 'users', enabled: true, permissionTab: 'users' },
-      { id: 'permissions', label: '菜单与资源权限', icon: 'lock', enabled: true, permissionTab: 'resources' },
-      { id: 'audit', label: '操作审计', icon: 'audit', enabled: true },
-      { label: 'SSO/LDAP', icon: 'key', enabled: false }
-    ]
-  },
-  {
-    label: '系统配置',
-    icon: 'settings',
-    children: [
-      { id: 'copilot-settings', label: 'AI Copilot 配置', icon: 'copilot', enabled: true },
-      { label: '通知渠道', icon: 'bell', enabled: false },
-      { label: '审计策略', icon: 'audit', enabled: false }
-    ]
-  },
-  { label: 'SRE 管理', icon: 'sre', enabled: false },
-  { label: '可观测性', icon: 'eye', enabled: false },
-  { label: '发布管理', icon: 'deploy', enabled: false },
-  { label: '混沌工程', icon: 'chaos', enabled: false },
-  { label: '知识库', icon: 'book', enabled: false },
-  { label: '容量规划 & FinOps', icon: 'finops', enabled: false },
-  { label: '智能自治闭环', icon: 'bot', enabled: false },
-  { label: '变更 & 自动化', icon: 'change', enabled: false }
+  { label: '资产管理', icon: 'server', children: [
+    { id: 'cmdb', label: '资产台账（CMDB）', icon: 'cmdb', enabled: true },
+    { id: 'middleware', label: '中间件与数据库', icon: 'database', enabled: true }
+  ] },
+  { label: '协同与事件响应', icon: 'collab', children: [
+    { id: 'incidents', label: '事件管理', icon: 'incident', enabled: true },
+    { id: 'oncall', label: '值班管理', icon: 'calendar', enabled: true },
+    { id: 'tasks', label: '任务跟踪', icon: 'task', enabled: true },
+    { label: 'SLA 管理', icon: 'activity', enabled: false }
+  ] },
+  { label: 'AI 运维', icon: 'copilot', children: [
+    { label: 'AI Copilot', icon: 'copilot', action: 'copilot', enabled: true },
+    { label: '根因分析', icon: 'activity', enabled: false }
+  ] },
+  { label: '权限管理', icon: 'shield', children: [
+    { id: 'permissions', label: '用户与角色', icon: 'users', enabled: true, permissionTab: 'users' },
+    { id: 'permissions', label: '菜单与资源权限', icon: 'lock', enabled: true, permissionTab: 'resources' },
+    { id: 'audit', label: '操作审计', icon: 'audit', enabled: true }
+  ] },
+  { label: '系统配置', icon: 'settings', children: [
+    { id: 'copilot-settings', label: 'AI Copilot 配置', icon: 'settings', enabled: true },
+    { label: '通知渠道', icon: 'bell', enabled: false }
+  ] },
+  { label: '监控与可观测性', icon: 'eye', enabled: false },
+  { label: '告警中心', icon: 'bell', enabled: false },
+  { label: '任务与自动化', icon: 'change', enabled: false }
 ]

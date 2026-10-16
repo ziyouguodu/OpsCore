@@ -8,7 +8,7 @@ OpsCore 是一个面向业务连续性的智能运维中枢指挥平台。项目
 
 - 当前阶段：一期功能开发与原型落地。
 - 运行方式：本地或远程 Docker Compose。
-- 默认数据库：PostgreSQL 16。
+- 默认数据库：PostgreSQL 18.6。
 - 默认认证方式：账号密码登录。
 - 默认角色：`super_admin`、`ops_engineer`。
 - 许可证状态：已提供 Apache License 2.0，详见 `LICENSE` 文件。
@@ -57,7 +57,7 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
   - 后端代理真实模型调用，按当前角色和配置开关注入资产、事件、任务和值班上下文；不发送受控凭据。模型服务错误会显示经密钥清洗的诊断摘要，对话支持 Markdown 标题、列表、表格和代码块。
   - 聊天窗有固定高度，长回复在消息区内滚动，输入区保持可用；聊天历史按登录用户保存在当前标签页会话中，刷新后恢复。
 
-桌面侧栏收起时，顶部以图标加 OpsCore 文字的紧凑品牌锁定区展示品牌，并与菜单展开按钮保持间距；点击有一期功能的栏目图标可展开导航，再选择栏目中的具体页面；灰度功能继续保持不可用状态。
+桌面菜单按一级分组展开/收起，每个一级及二级入口使用统一微图标；父菜单不跳转、不与当前子页面重复高亮。移动端仍使用遮罩抽屉，支持 Escape、键盘焦点约束和关闭后的焦点返回；选择业务页面后自动关闭。未接入模块保持禁用和明确的“待接入”状态。
 
 灰度或后续模块仅作为菜单占位，不表示已经具备完整业务能力。
 
@@ -66,6 +66,16 @@ AI Copilot 当前定位为查询、汇总和建议入口。在审计、权限和
 列表支持逐行选择和本页全选，选择状态跨页保留、最多 500 项；工具栏显示已选数量，可清除选择、导出所选 CSV 或批量删除。批量删除会逐项执行权限校验并要求统一确认。CSV 导出只包含明确勾选的记录，不提供绕过选择的全量筛选导出，且不包含凭据。
 
 页面顶部也提供 CSV 模板下载和批量导入。导入文件应使用下载的 UTF-8 CSV 模板，每次最多 500 行；服务端逐行校验，失败时显示摘要并自动下载失败行报告。资产编号与现有记录冲突时会更新该资产，导入前会要求确认。
+
+模板表头以“（必填）”标明服务端要求的字段，未标注列为可选；旧版中文表头和英文字段名仍可导入，普通导出表头不变。资产必填：类型、CPU架构、所属业务、IPv4、环境、操作系统、网络区域、CPU规格、内存规格、磁盘规格、部署信息、负责人、状态；资产编号留空可自动生成。实例必填：实例名称、类型、环境、网络区域、访问地址、所属业务、负责人；实例状态留空默认“运行中”。
+
+液体玻璃主题评审原型位于 `deliverables/liquid-glass-theme-review.html`，仅使用演示数据，不调用业务 API，也未替换正式控制台主题。
+
+智能运维首页设计评审稿位于 `deliverables/home-glass-framework-review.html`，提供深海蓝、石墨紫和极光钛主题。健康趋势按业务系统筛选，**只计算该业务系统关联核心服务可用性**（成功请求 / 总请求），资产状态健康率单独呈现，不与服务请求成功率合成同一百分比。默认查看今日，并支持近 7 天、近 30 天和自定义日期；无有效请求数据时显示 `--`。当前范围、趋势数值均为虚构演示，监控/SLA 尚未接入。
+
+首页主体保持 `deliverables/home-glass-framework-review.html` 的布局和最终主题样式，主题选择使用下拉框。侧栏按本轮确认改为无分类文字的可折叠一、二级菜单，父菜单只展开/收起，子页面单独导航；“权限管理”承载用户角色、资源权限和审计，“系统配置”承载 AI Copilot 配置，二者不再进入同一页面。首页已有资产、事件和当前值班数据使用真实后端读取，未接入的告警、核心服务遥测、风险、自动化及预设洞察采用独立只读演示来源并明确标识，不写入真实业务表、不用于生产处置或真实统计。风险与事件分属不同清单，资产状态健康率不纳入服务可用性趋势。
+
+首页读取接口：`GET /api/dashboard/workspace` 返回 `source: "real"` 的全局统计、业务归属、未关闭事件/未完成任务与值班中心摘要；`GET /api/dashboard/preview` 返回 `source: "demo"`、`executionAllowed: false` 的独立预览数据。预览参数为 `system=all|payment|orders|portal`、`period=today|7|30|custom`；自定义须提供 `from` 和 `to`（`YYYY-MM-DD`），最大 366 天，不能选择未来日期。今日提供 `00:00–23:00` 演示小时序列，跨日范围为日期序列，时区为 `Asia/Shanghai`。两接口均需认证和当前角色读取权限；首次改密用户不能读取业务接口。首页默认只显示真实业务；勾选“开启独立演示”后从预览接口读取未接入模块，真实资产、事件和值班不被替换；取消勾选恢复待接入空态。预设演示洞察不会调用模型，不能用于生产判断。工作台事件最多返回 4 条，任务最多 6 条，并按优先级全局排序，不受其他页面的分页和筛选状态影响；主备班次和待交接数量来自关系化值班中心。
 
 值班中心已通过 `GET/PUT /api/duty-center` 持久化团队、系统用户成员、排班模板、日历分配、当前值班、交接日志和升级策略，并使用 revision 乐观并发控制避免多用户静默覆盖。业务实体同步写入带外键的 `duty_*` 关系表，JSON 只保留兼容快照；基础 `daily` / `weekly` 值班记录接口继续保留兼容。
 
@@ -94,7 +104,7 @@ flowchart TB
 
         STORE["数据访问层<br/>pgx · 事务控制 · 版本化迁移"]
 
-        DATABASE[("PostgreSQL 16<br/>业务数据 · 权限 · 审计<br/>加密凭据 · AI 模型配置")]
+        DATABASE[("PostgreSQL 18.6<br/>业务数据 · 权限 · 审计<br/>加密凭据 · AI 模型配置")]
 
         ENTRY --> WEB
         WEB -->|"/api"| API
@@ -128,7 +138,7 @@ flowchart TB
 | --- | --- |
 | 前端 | Vue 3、Vite、原生 CSS |
 | 后端 | Go 1.24、标准库 `net/http` REST API |
-| 数据库 | PostgreSQL 16 |
+| 数据库 | PostgreSQL 18.6 |
 | 数据库驱动 | `github.com/jackc/pgx/v5` |
 | 凭据加密 | AES-GCM，密钥来自 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY` |
 | 本地编排 | Docker Compose |
@@ -170,6 +180,7 @@ flowchart TB
 ```bash
 cd deploy
 cp .env.example .env
+docker volume create deploy_postgres18-data
 docker compose up --build -d
 ```
 
@@ -203,14 +214,9 @@ cd deploy
 docker compose down
 ```
 
-如果需要清空本地数据库数据：
+如果需要清空本地数据库数据，先验证备份可恢复并确认目标外部卷名，再单独安排删除与重新初始化；不提供默认清空命令，避免误删真实数据。
 
-```bash
-cd deploy
-docker compose down -v
-```
-
-注意：`docker compose down -v` 会删除 PostgreSQL 数据卷，请谨慎使用。
+注意：PostgreSQL 18.6 使用外部卷 `deploy_postgres18-data`，挂载 `/var/lib/postgresql`；首次部署先创建该卷，或通过 `POSTGRES18_VOLUME` 指定已创建的卷。旧 16 卷 `deploy_postgres-data` 保留为外部卷用于受控回退。外部卷不会由 Compose `down -v` 删除，但该命令仍可能删除其他受 Compose 管理的卷，不能作为升级或数据库清空步骤。备份恢复及回退边界见 [PostgreSQL 升级手册](deploy/POSTGRES_UPGRADE.md)。
 
 ## 默认账号
 
@@ -246,6 +252,9 @@ cp deploy/.env.example deploy/.env
 | `POSTGRES_USER` | PostgreSQL 用户名 |
 | `POSTGRES_PASSWORD` | PostgreSQL 密码 |
 | `POSTGRES_PORT` | 本机 PostgreSQL 暴露端口 |
+| `POSTGRES18_VOLUME` | 预先创建的 PostgreSQL 18 外部卷名，默认 `deploy_postgres18-data` |
+| `POSTGRES16_VOLUME` | 回退用的原 PostgreSQL 16 外部卷名，默认 `deploy_postgres-data` |
+| `POSTGRES16_ROLLBACK_IMAGE` | 回退时使用的旧镜像，本次保留为 `opscore-postgres16-rollback:20261014` |
 | `BACKEND_PORT` | 本机后端 API 端口 |
 | `FRONTEND_PORT` | 本机前端端口 |
 | `OPSCORE_ENV` | 运行环境；生产部署必须为 `production` |
@@ -352,7 +361,7 @@ Smoke 脚本会在后端容器内验证一期关键 API 流程：
 ADMIN_USERNAME=admin ADMIN_PASSWORD='your-current-password' scripts/smoke-api.sh
 ```
 
-Smoke 默认把当前管理员密码设置为本地统一凭据校验密码。需要使用独立校验密码时，可额外传入 `CREDENTIAL_VERIFY_PASSWORD`。
+Smoke 在测试过程中临时设置统一凭据校验密码（默认取 `ADMIN_PASSWORD`，也可传 `CREDENTIAL_VERIFY_PASSWORD`）。运行前在 PostgreSQL 容器内以 0600 临时文件保存原设置，正常完成、错误及可捕获信号退出时在事务中还原原 `key/value/updated_at`；原本未配置则删除临时设置。Smoke 仍会生成审计记录和清理测试业务数据，不属于只读检查。不要在 Smoke 运行期间并发修改该安全配置；强制终止、数据库容器丢失或还原失败需按脚本提示受控恢复快照。
 
 如果忘记本地管理员密码，可在 Docker Compose 启动后执行：
 
@@ -379,8 +388,11 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - 中间件与数据库登录信息存储在 `middleware_credentials`。
 - 密码/密钥使用 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY` 加密后落库。
 - 普通列表和保存响应不会返回明文凭据。
+- 资产和实例保存使用提交时的数据及凭据快照，保存期间不能重复提交；切换或关闭编辑器后，旧请求不会覆盖新编辑器或详情。基础记录保存成功但凭据失败时保留编辑输入与记录 ID，可重试而不重复创建。
 - 凭据查看需要权限校验和二次密码校验。
 - 二次校验使用超级管理员在权限页配置的统一密码；未配置时禁止查看明文凭据，不回退账号登录密码。
+- 二次校验失败返回 `403`，共享失败计数和临时锁定仍有效；只有真实会话/Token失效返回 `401` 并清理会话，`429` 不表示退出登录。
+- 统一校验密码使用服务端随机盐哈希存储，配置响应仅返回 `hasPassword`。传输保护依赖对外HTTPS；浏览器开发者工具可见本人输入的请求体，不等于HTTPS线路明文，前端Base64或哈希不能代替TLS。
 - 登录和凭据二次验证连续失败会触发临时锁定并返回 `429`。
 - 生产环境必须固定保存 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY`。密钥变更后，旧密文将无法解密。
 

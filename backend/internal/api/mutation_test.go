@@ -970,7 +970,7 @@ func TestMiddlewareCredentialRoutesMaskAndRevealSecret(t *testing.T) {
 	currentPasswordReq.Header.Set("Authorization", "Bearer "+token)
 	currentPasswordRec := httptest.NewRecorder()
 	server.Routes().ServeHTTP(currentPasswordRec, currentPasswordReq)
-	if currentPasswordRec.Code != http.StatusUnauthorized {
+	if currentPasswordRec.Code != http.StatusForbidden {
 		t.Fatalf("expected current login password to be rejected after unified credential password is configured, got %d: %s", currentPasswordRec.Code, currentPasswordRec.Body.String())
 	}
 

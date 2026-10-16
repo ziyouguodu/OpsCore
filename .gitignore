@@ -6,6 +6,7 @@ frontend/test-results/
 frontend/playwright-report/
 .playwright-cli/
 output/playwright/
+backups/
 backend/opscore-api
 backend/.gocache/
 *.log

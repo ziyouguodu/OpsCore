@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import PaginationBar from './PaginationBar.vue'
 import BulkDataTools from './BulkDataTools.vue'
+import { bulkSchemas } from '../bulk-data'
 
 const props = defineProps({
   businesses: { type: Array, default: () => [] },
@@ -16,6 +17,7 @@ const props = defineProps({
   filters: { type: Object, required: true },
   form: { type: Object, required: true },
   formCredential: { type: Object, required: true },
+  formCredentialReady: { type: Boolean, default: true },
   formOpen: { type: Boolean, default: false },
   isSample: { type: Function, required: true },
   networkZones: { type: Array, default: () => [] },
@@ -57,6 +59,17 @@ const selectedIds = computed(() => new Set(props.selectedItems.map((item) => ite
 const pageSelectionCount = computed(() => props.pagedAssets.filter((item) => selectedIds.value.has(item.id)).length)
 const pageFullySelected = computed(() => props.pagedAssets.length > 0 && pageSelectionCount.value === props.pagedAssets.length)
 const pagePartiallySelected = computed(() => pageSelectionCount.value > 0 && !pageFullySelected.value)
+
+const assetFields = bulkSchemas.assets.map(([key, label, required]) => ({
+  key,
+  label: ({ type: '资产类型', cpuArch: 'CPU 架构', cpu: 'CPU 规格', memory: '内存规格', disk: '磁盘规格', status: '资产状态' })[key] || label,
+  required: Boolean(required),
+  options: ({ type: ['物理机', '虚拟机'], environment: ['生产', '仿真', '研发'], status: ['运行中', '维护中', '停用', '故障'] })[key]
+}))
+
+function fieldRequired(field) {
+  return field.required || (field.key === 'assetNo' && Boolean(props.form.id))
+}
 
 function isSelected(id) {
   return selectedIds.value.has(id)
@@ -111,39 +124,24 @@ function closeEditorOnFocusOut(event) {
         <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
           <h3>{{ form.id ? '编辑资产' : '新增资产' }}</h3>
           <div class="form-grid cmdb-form">
-            <input v-model="form.assetNo" aria-label="资产编号" placeholder="资产编号（留空自动生成）" />
-            <select v-model="form.type" aria-label="资产类型"><option>物理机</option><option>虚拟机</option></select>
-            <input v-model="form.vendor" aria-label="厂商" placeholder="厂商" />
-            <input v-model="form.cpuArch" aria-label="CPU 架构" placeholder="CPU 架构" />
-            <input v-model="form.sn" aria-label="SN" placeholder="SN" />
-            <input v-model="form.location" aria-label="物理位置" placeholder="物理位置" />
-            <input v-model="form.business" aria-label="所属业务" placeholder="所属业务" />
-            <input v-model="form.ipv4" aria-label="IPv4" placeholder="IPv4" />
-            <input v-model="form.ipv6" aria-label="IPv6" placeholder="IPv6" />
-            <select v-model="form.environment" aria-label="环境"><option>生产</option><option>仿真</option><option>研发</option></select>
-            <input v-model="form.os" aria-label="操作系统" placeholder="操作系统" />
-            <input v-model="form.hostname" aria-label="主机名" placeholder="主机名" />
-            <input v-model="form.networkZone" aria-label="网络区域" placeholder="网络区域" />
-            <input v-model="form.cpu" aria-label="CPU 规格" placeholder="CPU 规格" />
-            <input v-model="form.memory" aria-label="内存规格" placeholder="内存规格" />
-            <input v-model="form.disk" aria-label="磁盘规格" placeholder="磁盘规格" />
-            <input v-model="form.deploymentInfo" aria-label="部署信息" placeholder="部署信息" />
-            <input v-model="form.owner" aria-label="负责人" placeholder="负责人" />
-            <input v-model="form.hostMachine" aria-label="所在宿主机" placeholder="所在宿主机（虚拟机可填）" />
-            <select v-model="form.status" aria-label="资产状态"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <label v-for="field in assetFields" :key="field.key">
+              <span>{{ field.label }}{{ fieldRequired(field) ? '（必填）' : '（可选）' }}</span>
+              <select v-if="field.options" v-model="form[field.key]" :aria-label="field.label" :required="fieldRequired(field)" :aria-required="fieldRequired(field)"><option v-for="option in field.options" :key="option">{{ option }}</option></select>
+              <input v-else v-model="form[field.key]" :aria-label="field.label" :placeholder="field.key === 'assetNo' && !form.id ? '留空自动生成' : field.label" :required="fieldRequired(field)" :aria-required="fieldRequired(field)" />
+            </label>
             <section v-if="canManageCredentials" class="credential-inline form-wide">
               <div>
                 <strong>登录信息</strong>
                 <span>保存后加密存储，列表不展示；查看密码需统一二次校验。</span>
               </div>
               <div class="form-grid credential-form-inline">
-                <input v-model="formCredential.loginUrl" aria-label="登录地址" placeholder="登录地址（可选）" />
-                <input v-model="formCredential.username" aria-label="登录用户名" placeholder="登录用户名" />
-                <input v-model="formCredential.secret" aria-label="登录密码或密钥" placeholder="登录密码 / 密钥" type="password" />
-                <input v-model="formCredential.notes" aria-label="登录信息备注" placeholder="备注" />
+                <label>登录地址（可选）<input v-model="formCredential.loginUrl" :disabled="!formCredentialReady" aria-label="登录地址" placeholder="登录地址" /></label>
+                <label>登录用户名（可选）<input v-model="formCredential.username" :disabled="!formCredentialReady" aria-label="登录用户名" placeholder="登录用户名" /></label>
+                <label>登录密码或密钥（可选）<input v-model="formCredential.secret" :disabled="!formCredentialReady" aria-label="登录密码或密钥" placeholder="留空则保留原值" type="password" /></label>
+                <label>登录信息备注（可选）<input v-model="formCredential.notes" :disabled="!formCredentialReady" aria-label="登录信息备注" placeholder="备注" /></label>
               </div>
             </section>
-            <button class="primary" :disabled="!canWrite" @click="$emit('save')">{{ form.id ? '保存修改' : '保存资产' }}</button>
+            <button class="primary" :disabled="!canWrite || !formCredentialReady" @click="$emit('save')">{{ form.id ? '保存修改' : '保存资产' }}</button>
             <button @click="$emit('close-form')">取消</button>
           </div>
         </section>
@@ -190,7 +188,7 @@ function closeEditorOnFocusOut(event) {
         <div class="credential-box">
           <h4>登录信息</h4>
           <template v-if="canManageCredentials">
-            <p class="muted">登录地址、账号与备注可维护；密码/密钥默认隐藏，需输入权限管理中配置的统一校验密码后查看。</p>
+            <p class="muted">登录地址、账号与备注可维护；密码/密钥默认隐藏，需输入权限管理中配置的统一二次校验密码（不是登录密码）后查看。</p>
             <div class="credential-actions">
               <button @click="$emit('load-credential')">加载登录信息</button>
               <span v-if="credential.hasSecret" class="pill danger">已保存密钥</span>
@@ -199,7 +197,8 @@ function closeEditorOnFocusOut(event) {
             <div class="form-grid credential-form">
               <input v-model="credential.loginUrl" aria-label="登录地址" placeholder="登录地址" />
               <input v-model="credential.username" aria-label="登录账号" placeholder="账号" />
-              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
+              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" :type="credentialReveal.revealed && credentialReveal.visible ? 'text' : 'password'" />
+              <button v-if="credentialReveal.revealed" :aria-pressed="credentialReveal.visible" @click="credentialReveal.visible = !credentialReveal.visible">{{ credentialReveal.visible ? '隐藏密码/密钥' : '显示密码/密钥' }}</button>
               <input v-model="credential.notes" aria-label="登录信息备注" placeholder="备注" />
               <button class="primary" @click="$emit('save-credential')">保存登录信息</button>
             </div>

@@ -60,10 +60,10 @@ test('keeps fixed calendar years out of the duty production interface', () => {
   assert.doesNotMatch(dutySource, /2026-\d{2}-\d{2}/)
 })
 
-test('keeps dashboard metric titles, values and supporting data on separate rows', () => {
-  assert.equal((dashboardSource.match(/class="metric-copy"/g) || []).length, 4)
-  assert.match(stylesSource, /\.metric-copy \{[^}]*display: grid/)
-  assert.match(stylesSource, /\.metric-copy strong \{[^}]*display: block/)
+test('keeps exactly six simple dashboard KPIs without secondary metric cards', () => {
+  assert.match(dashboardSource, /aria-label="核心指标"/)
+  assert.equal((dashboardSource.match(/class="kpi glass/g) || []).length, 6)
+  assert.doesNotMatch(dashboardSource, /metric-copy|secondary-metrics|asset-bars|incident-levels/)
 })
 
 test('keeps model-backed Copilot orchestration outside the application shell', () => {
@@ -91,4 +91,17 @@ test('keeps dashboard presentation orchestration outside the application shell',
   assert.match(appSource, /useDashboardViewModel/)
   assert.match(dashboardComposableSource, /dashboardPriorityItems/)
   assert.doesNotMatch(appSource, /const dashboardPriorityItems = computed/)
+})
+
+test('keeps the production dashboard aligned with the reviewed command-center boundary', () => {
+  assert.match(dashboardSource, /业务系统健康趋势/)
+  assert.match(dashboardSource, /核心服务可用性/)
+  assert.match(dashboardSource, /今日/)
+  assert.match(dashboardSource, /近 7 天/)
+  assert.match(dashboardSource, /近 30 天/)
+  assert.match(dashboardSource, /自定义/)
+  assert.match(dashboardSource, /资产状态健康率单独呈现/)
+  assert.match(dashboardSource, /告警中心与监控数据待接入/)
+  assert.match(appSource, /:workspace="dashboardWorkspace"/)
+  assert.match(dashboardSource, /review-dashboard/)
 })

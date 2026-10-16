@@ -634,3 +634,89 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
 - Playwright 移动端回归发现从桌面编辑态切换到 390px 后 Copilot 网格被表格最小内容宽度撑到 1092px；将工作区轨道约束为 `minmax(0, 1fr)` 并允许子项收缩后，页面级 `scrollWidth` 恢复为 390px。
 - 验证通过：前端单元测试 30/30、lint、Vite 生产构建、Go 全包测试、`go vet ./...`、API Smoke、Chromium E2E 6/6、Copilot 桌面编辑态和移动端视觉回归、Docker Compose 三容器健康检查。
 - 最终仅追加表格操作按钮暗色可读性样式后，单元测试、lint、生产构建和 Docker 镜像重建再次通过；外部执行额度恢复后已对当前最终镜像补跑完整 Chromium E2E，6/6 通过，并再次通过 Go 全包测试、`go vet ./...`、API Smoke、迁移唯一启用约束和三容器健康检查。
+
+## 2026-10-09 - CSV 模板必填标记与液体玻璃主题评审
+
+- 资产及实例模板在必填列名后标注“（必填）”，分别对应服务端创建接口的 13 个和 7 个必填字段；资产编号、实例状态保持可选，不修改业务校验规则。
+- CSV 解析兼容带标记模板、旧中文表头与字段 key；普通导出及错误行报告表头不变。补充必填集合、模板往返解析单元测试和真实下载模板后再导入的 E2E 回归。
+- 新增独立液体玻璃主题评审页 `deliverables/liquid-glass-theme-review.html`，仅展示演示数据，不连接业务 API，不替换正式主题。
+- 验证：前端单测 38/38、lint、生产构建、完整 Chromium E2E 10/10、`git diff --check` 通过。Docker Compose 已重建并运行，前端、后端、PostgreSQL 均健康。初次浏览器启动与 Docker 构建受工作区权限限制，经授权重试通过。
+## 2026-10-13 - 首页原型视觉二次对齐
+
+- 根据实际登录截图复核后，确认顶栏必须横跨全屏，桌面侧栏应默认展开并按原型分组；现已调整应用 CSS Grid 行列、默认侧栏状态和 Sidebar 分组模板，保留折叠/移动抽屉。
+- Topbar 主题切换由三枚按钮改为下拉选择，保留三套主题与 Copilot、身份和退出入口；品牌 Logo 使用透明资源。
+- 正式首页卡片仍绑定真实资产、值班、事件和任务数据；监控、告警、SLA、AI实时洞察、自动化无真实数据时显示待接入/空态，不使用原型虚构数字。
+- 前端单测 39/39、lint、build 通过；E2E Chromium 启动 SIGSEGV，未进入页面测试；Docker 已授权重建，三容器 healthy。未能做托管浏览器截图核验。
+
+
+- 正式首页按 `deliverables/home-glass-framework-review.html` 融合全局品牌顶栏、透明 Logo、深海蓝/石墨紫/极光钛主题切换、玻璃面板、六项核心 KPI、风险与事件分区、服务健康与 AI 洞察空态。
+- 保留真实资产、值班、任务和事件数据；告警中心、SLA、核心服务监控、自动化执行没有真实后端数据时维持待接入状态，不使用原型演示数值。
+- 首页趋势控件改为业务系统筛选和今日/近 7 天/近 30 天/自定义时间范围；正式接入前不绘制虚构曲线，资产状态健康率独立于服务可用性。
+- 验证：前端单测、lint、Vite build 已通过；待完成完整 Chromium E2E 与 Docker 栈重建。
+
+
+- 首页健康趋势改为按业务系统筛选；资产与服务均归属业务系统，但本趋势仅计算关联核心服务的请求可用性（成功请求 / 总请求），不把资产状态健康率混入同一百分比；资产健康状态单独呈现。
+- 默认时间范围为今日，另支持近 7 天、近 30 天和自定义日期；无有效请求观测时显示 `--`。多服务汇总权重需在监控与服务目录接入后配置。
+- 设计稿已将趋势图绘图区扩大，并保留“待接入/虚构演示”声明。业务系统选择与日期控件在托管浏览器中核查；日期输入校验修复、应用/取消/Escape 和三主题切换均通过。
+- 静态脚本语法检查与 `git diff --check` 通过；最终重新打开浏览器时托管 Chrome 调试端口超时，因此未能复测最后的扩图视觉与移动端溢出。未修改正式业务代码、未执行构建或 Docker 重建。
+
+## 2026-10-13 - 原型融合最终回归
+
+- 修正默认展开侧栏、全局顶栏、主题下拉选择、原型分组菜单、唯一 AI Copilot 入口、首页 KPI 导航接线和资产页横向溢出约束。
+- 最新镜像上的完整 Chromium E2E：10/10 通过；前端单元测试 39/39、lint、build 通过；Docker 前端、后端、PostgreSQL 均 healthy。
+- E2E 使用授权环境运行；此前工作区 Chromium SIGSEGV 已不再阻断。
+
+## 2026-10-14 - 以首页原型为唯一基准的前后端改造
+
+- 用户确认真实业务与隔离演示并存：首页结构、菜单及主题以 `deliverables/home-glass-framework-review.html` 为唯一基准，主题下拉框为指定例外；不再叠加旧首页结构。
+- 资产、首页事件队列和当前值班使用后端全局读取；告警、核心服务趋势、风险、服务 P95、自动化及预设洞察通过独立只读演示契约提供并标注来源，不写入真实业务表、不执行生产处置。
+- 后端全包测试与 `go vet ./...` 通过；实际 PostgreSQL 上的工作台查询以及扩展 API Smoke 全流程通过。预览响应保留 `source=demo`、`executionAllowed=false`、今日24小时和 `includesAssetHealth=false`。
+- 前端单元测试 49/49、lint、build 通过；完整 Chromium E2E 13/13 通过，覆盖真实/演示隔离、主题下拉、风险联动、日期校验与取消/Escape/焦点返回、值班交接、原有一期业务与角色权限。
+- 1440px、1280px、390px 同视口对照通过：顶栏65px/移动61px、侧栏188px/172px、主区与KPI宽度、菜单顺序、主题变量、菜单/摘要/事件按钮的实际边框与底色/字号一致；390px KPI宽178.5px，切换任务页后无页面级横向溢出。
+- 已查看正式桌面和移动截图。原型中的虚构统计/姓名/事件不复制到真实业务；来源标识、真实内容长度与主题下拉会造成局部文本及内容高度差异，不声称逐像素截图完全相同。截图与测量记录存放 `output/playwright/strict-*`。
+- Docker Compose 已重建最终镜像并保持前端、后端、PostgreSQL healthy；未提交或推送Git。
+
+## 2026-10-14 - PostgreSQL 16.14 → 18.6 保留旧卷升级
+
+- 经用户明确授权维护窗口，先进行隔离恢复演练，再停止前后端写入、生成最终逻辑dump及全局角色备份，恢复到全新 `deploy_postgres18-data` 卷；旧 `deploy_postgres-data` 卷保留未改动，旧运行镜像保留为 `opscore-postgres16-rollback:20261014`。
+- 24张业务表内容指纹、序列、索引、列类型/非空属性和跨版本可比约束一致；PostgreSQL18新增NOT NULL系统约束单独按列属性比较。9个迁移版本、pg_trgm扩展和原角色/业务密文保留，应用加密密钥不变。
+- 实测 `server_version=18.6`、PGDATA `/var/lib/postgresql/18/docker`，Compose使用 `/var/lib/postgresql` 外部卷；新增回退覆盖、升级手册、指纹校验SQL和忽略Git的受限备份目录。临时初始化角色保留但已NOLOGIN且无密码，临时恢复容器已清理。
+- 后端全包测试/vet、前端49/49单测/lint/build、18.6栈完整E2E13/13和登录/工作台/分页/已托管凭据元信息解密读取通过；前后端和数据库均healthy。未执行会改写统一校验密码的旧Smoke。
+- 最终备份与全局角色文件权限600、目录700，已保存SHA256；尚未完成异机备份。应用已恢复写入，回退旧16卷前必须停写并制定新数据补偿，不能直接无损回退。详细验收见 `deliverables/postgres-18-upgrade-report.md`。
+
+## 2026-10-15 - 凭据二次校验状态码回归与菜单结构复核
+
+- 后端凭据二次校验错误密码固定返回 `403`，只有真实会话/Token 失效才返回 `401`，不再把统一校验密码失败当成登录失效；`/api/security/credential-verification` 存储层错误改为安全 `500`，不再按 `400` 回显。全包测试 `go test -count=1 ./...` 与 `go vet ./...` 通过。
+- 前端单元测试 62/62、`npm run lint` 与 Vite 生产构建通过；资产管理页多 IP 搜索、行/本页选择、所选 CSV 导出与批量删除相关用例一并回归。
+- 扩展 API Smoke 全流程通过，并且新增的凭据校验配置快照在整个流程结束后按原值还原：`credential_verification_password_hash` 内容与 `updated_at` 均逐字节一致（Smoke 不再改写统一校验密码）。
+- 运行中的 Compose 栈（frontend/backend/PostgreSQL 18.6）容器镜像早于本轮未提交改动，本机 Docker Hub 不可达无法重建；改为用当前源码在 `:8090` 启动后端、`VITE_DEV_API_TARGET` 指向该后端的 Vite 开发服务器完成真实浏览器复核。
+- 托管浏览器实测：错误统一校验密码返回 `403` 且 `/api/auth/me` 仍为 `200`，页面保持不变并内联提示“无法查看密码/密钥”；正确密码返回 `200`、密钥成功显示并出现“已校验”与隐藏切换。复核后统一校验密码哈希已还原为原值。
+- 菜单结构复核：一级分组可折叠/展开（`aria-expanded`），权限管理与系统配置已分离为“用户与角色 / 菜单与资源权限 / 操作审计”和“AI Copilot 配置 / 通知渠道”；未接入模块保持禁用与“待接入”。资产新增表单必填项以“（必填）”/“（可选）”标注，与 `bulkSchemas` 一致。
+- 本轮失败项：`npx playwright test` 的 Chromium/系统 Chrome 均在本工作区沙箱中启动即 SIGSEGV（连 `about:blank` 都无法打开，`~/Library/Application Support` 与 crashpad mach 握手被拒绝），因此 Playwright E2E 未能执行；`docker compose up --build` 因本机无法访问 `registry-1.docker.io` 未能重建镜像。两项均属环境限制，不是代码失败。
+
+## 2026-10-15 - E2E 凭据用例缺陷修复
+
+- 用户重建镜像后运行 `npm run test:e2e` 得到 12 passed / 5 failed。5 个失败中 4 个集中在 `e2e/credential.spec.js`，1 个为侧栏菜单用例。
+- 定位到 `credential.spec.js` 的两个真实缺陷，均验证后修复：
+  - 路由错误：`setup()` 使用 `page.goto('/#assets')`，但 `routeViews` 只包含 `cmdb`/`middleware` 等，`parseRouteHash` 对未知路由回落到 `dashboard`，导致 `tbody tr.clickable-row` 永远为 0 行、`toHaveCount(2)` 直接超时。已改为资产用 `#cmdb`、实例用 `#middleware`。
+  - mock 形状不完整：列表接口假数据返回 `options: {}`，而 `App.vue` 的 `applyPageResult` 用 `result.options` 整体覆盖默认值，随后 `listMeta.middleware.options.business.length` 抛 `Cannot read properties of undefined (reading 'length')`，Vue 渲染整页崩溃（实测 `h1` 与表格全部消失）。已改为返回 `{ business: [], networkZone: [] }`，与 `store/pagination.go` 的 `result.Options` 契约一致。
+- 验证方式：本工作区 Chromium 无法启动，改用客户端托管浏览器通过 CDP（`chromium.connectOverCDP`）复现，逐条执行两个用例的全部断言。修复前 0 行/整页崩溃，修复后 4 个用例的全部断言（含错误密码 403 不退出、正确密码显示明文、必填 13/7 与编辑态 14/7、工程师无凭据入口与无权限提示）逐条通过。
+- 侧栏菜单用例（`sidebar-copilot-formatting.spec.js`）在托管浏览器中逐条断言全部通过（品牌、折叠/展开、`aria-expanded`、svg 与按钮数相等、四个分组导航、`nav.active`、无横向溢出），未能复现用户环境中的失败；该用例依赖全部业务接口而不 mock，疑与运行时数据或视口相关，待用户环境复跑确认。
+- 前端回归：单元测试 62/62、`npm run lint`、Vite 生产构建通过。
+- 沙箱内的 Playwright 仍不可执行；`docker compose` 需用户环境完成。E2E 修复结果以用户环境复跑为准。
+
+### 用户环境复跑确认（2026-10-16）
+
+- 用户在修复后的环境重跑 `ADMIN_PASSWORD=OpsCore2026 npm run test:e2e`，17/17 全部通过，包含此前失败的 4 个 `credential.spec.js` 用例与 1 个侧栏菜单用例。
+- 产物佐证：`frontend/test-results/.last-run.json` 记录 `status: "passed"` 且 `failedTests: []`；Playwright 仅在用例失败时保留目录，该次运行无任何失败目录残留。
+- 侧栏菜单用例在用户环境同样通过；此前单次失败的根因未确定，不能仅凭复跑成功推断为旧镜像或旧产物。
+- 至此 4、5 两项待办的全部修复均已获得真实运行证据：后端凭据二次校验 403、共享限流专项回归、Smoke 原配置还原、凭据验证后显示与编辑维护、资产必填标识、可折叠菜单与权限/配置分离。
+
+## 2026-10-16 - 当前工作树提交与部署检查
+
+- 提交前重新执行后端 `go test -count=1 ./...`、`go vet ./...`，前端 62/62 单元测试、lint、生产构建、Smoke 脚本语法检查及 `git diff --check`，均通过。
+- 本轮重新尝试完整 Playwright，17 项均在 Chromium 启动阶段因 SIGSEGV 终止，未进入页面断言；保留上一轮用户环境全通过的历史记录，不将本轮记录为 E2E 通过。
+- 提交范围包含当前业务代码、测试、正式评审稿、PostgreSQL 18.6 升级和回退资料；不提交 `.archify/` 制图过程目录、数据库备份、真实环境配置或运行缓存。旧数据库卷和旧镜像保持保留。
+- 深度审查发现资产/实例保存基础字段后读取共享凭据表单，切换记录会导致凭据串写；经用户确认先修复：提交时固定基础字段与凭据快照，保存期间阻止重复提交，旧响应不再覆盖新编辑器、详情或选中记录。凭据写入失败时保留表单并绑定已保存记录 ID，避免重试重复创建；新增资产/实例并发隔离与失败恢复专项回归。
+- 修复后凭据专项 16/16、前端全量单测 66/66、lint、生产构建通过；静态复审确认原串写阻断已消除。
+- 本轮初次提交与部署被执行沙箱阻断；用户调整权限后 `git add` 已成功，完整 Playwright 17/17 通过（约 10 秒）。此前启动崩溃已不再阻断。最终镜像重建后的验收结果另记。

@@ -19,3 +19,21 @@ test('accepts field names as CSV headers and rejects mismatched templates', () =
   ])
   assert.throws(() => parseCsv('other,value\na,b', bulkSchemas.assets), /表头与当前导入模板不匹配/)
 })
+
+test('marks required template columns without changing export headers', () => {
+  const required = {
+    assets: ['type', 'cpuArch', 'business', 'ipv4', 'environment', 'os', 'networkZone', 'cpu', 'memory', 'disk', 'deploymentInfo', 'owner', 'status'],
+    middleware: ['name', 'kind', 'environment', 'networkZone', 'endpoint', 'business', 'owner']
+  }
+  for (const [resource, schema] of Object.entries(bulkSchemas)) {
+    assert.deepEqual(schema.filter(([, , mandatory]) => mandatory).map(([key]) => key), required[resource])
+    const template = toCsv([], schema, { template: true })
+    for (const [key, label] of schema) {
+      assert.ok(template.includes(`"${label}${required[resource].includes(key) ? '（必填）' : ''}"`))
+    }
+    assert.ok(!toCsv([], schema).includes('（必填）'))
+    const item = Object.fromEntries(schema.map(([key]) => [key, `value-${key}`]))
+    const csv = `${template}\r\n${schema.map(([key]) => item[key]).join(',')}`
+    assert.deepEqual(parseCsv(csv, schema), [{ __row: 2, ...item }])
+  }
+})

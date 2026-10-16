@@ -45,6 +45,24 @@ test('exposes the HTTP status on API failures', async () => {
   }, error => error.status === 409 && error.message === 'conflict')
 })
 
+test('keeps the session for credential verification failures and throttling', async () => {
+  for (const status of [403, 429]) {
+    let expired = false
+    client.setSessionExpiredHandler(() => { expired = true })
+    client.setToken('valid-token')
+    globalThis.fetch = async () => ({
+      ok: false,
+      status,
+      json: async () => ({ error: 'verification rejected' })
+    })
+    await assert.rejects(() => client.api('/assets/1/credential/reveal', {
+      method: 'POST', body: JSON.stringify({ password: 'wrong' })
+    }), error => error.status === status)
+    assert.equal(client.getToken(), 'valid-token')
+    assert.equal(expired, false)
+  }
+})
+
 test('keeps bearer tokens in tab-scoped session storage instead of persistent local storage', () => {
   client.setToken('tab-token')
   assert.equal(sessionMemory.get('opscore.token'), 'tab-token')

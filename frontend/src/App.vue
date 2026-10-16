@@ -21,6 +21,7 @@ import Topbar from './components/Topbar.vue'
 import { useConfirmDialog } from './composables/useConfirmDialog'
 import { useCopilotChat } from './composables/useCopilotChat'
 import { useDashboardViewModel } from './composables/useDashboardViewModel'
+import { useDashboardWorkspace } from './composables/useDashboardWorkspace'
 import { useDeferredLoader } from './composables/useDeferredLoader'
 import { useToast } from './composables/useToast'
 import { useWorkspaceRoute } from './composables/useWorkspaceRoute'
@@ -60,8 +61,13 @@ watch(
   setCopilotUserID,
   { immediate: true }
 )
-const sidebarCollapsed = ref(true)
+const { workspace: dashboardWorkspace, preview: dashboardPreview, previewEnabled, previewLoading, previewError, loadWorkspace, loadPreview, resetWorkspace } = useDashboardWorkspace()
 const mobileNavOpen = ref(false)
+const theme = ref('deepsea')
+function changeTheme(nextTheme) {
+  theme.value = nextTheme
+  document.documentElement.dataset.theme = nextTheme
+}
 const loading = ref(false)
 const error = ref('')
 const { messages: toastMessages, notify, dismiss: dismissToast } = useToast()
@@ -84,13 +90,21 @@ const userFormOpen = ref(false)
 const copilotEditorMode = ref('closed')
 const copilotProfiles = ref([])
 const credential = reactive({ loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
-const credentialReveal = reactive({ password: '', revealed: false })
+const credentialReveal = reactive({ password: '', revealed: false, visible: false })
 const credentialMessage = ref('')
 const assetFormCredential = reactive({ loginUrl: '', username: '', secret: '', notes: '' })
 const middlewareCredential = reactive({ loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
-const middlewareCredentialReveal = reactive({ password: '', revealed: false })
+const middlewareCredentialReveal = reactive({ password: '', revealed: false, visible: false })
 const middlewareCredentialMessage = ref('')
 const middlewareFormCredential = reactive({ loginUrl: '', username: '', secret: '', notes: '' })
+const assetFormCredentialReady = ref(true)
+const middlewareFormCredentialReady = ref(true)
+const assetFormCredentialExists = ref(false)
+const middlewareFormCredentialExists = ref(false)
+let assetFormCredentialRequest = 0
+let middlewareFormCredentialRequest = 0
+let assetCredentialRequest = 0
+let middlewareCredentialRequest = 0
 const credentialVerification = reactive({ hasPassword: false, password: '', confirm: '', message: '' })
 const passwordInit = reactive({
   currentPassword: '',
@@ -310,18 +324,10 @@ const displayUsers = computed(() => state.users.length ? state.users : (demoData
 const currentTask = computed(() => selectedTask.value || null)
 const currentIncident = computed(() => selectedIncident.value || null)
 const {
-  assetKpiBars,
-  dashboardAssetCount,
   dashboardIncidentCount,
-  dashboardMetrics,
-  dashboardOncallCount,
-  dashboardPriorityItems,
   dashboardTaskCount,
-  incidentKpiLevels,
   incidentLevelCounts,
-  taskKpiCards,
-  taskStatusCounts,
-  todayOncall
+  taskStatusCounts
 } = useDashboardViewModel({
   demoDataEnabled,
   state,
@@ -372,15 +378,9 @@ function associatedAssetName(item) {
   return asset ? asset.assetNo : `资产 ID ${item.assetId}`
 }
 
-function toggleSidebarNavigation() {
-  if (window.matchMedia('(max-width: 1040px)').matches) {
-    mobileNavOpen.value = !mobileNavOpen.value
-    return
-  }
-  sidebarCollapsed.value = !sidebarCollapsed.value
-}
-
 function closeOpenEditors() {
+  resetAssetCredentialState()
+  resetMiddlewareCredentialState()
   if (assetFormOpen.value) closeAssetForm()
   if (middlewareFormOpen.value) closeMiddlewareForm()
   if (taskFormOpen.value) closeTaskForm()
@@ -421,7 +421,8 @@ function applyPageResult(key, result, pager) {
 }
 
 async function loadDashboard() {
-  state.dashboard = { ...emptyDashboard, ...(await api('/dashboard')) }
+  await loadWorkspace()
+  state.dashboard = { ...emptyDashboard, ...dashboardWorkspace.value.statistics }
 }
 
 async function loadAssetPage() {
@@ -450,8 +451,8 @@ async function loadAll() {
     if (me.mustChangePassword) {
       return
     }
-    const [dashboard, assets, middleware, oncalls, tasks, incidents, userDirectory] = await Promise.all([
-      api('/dashboard'),
+    const [, assets, middleware, oncalls, tasks, incidents, userDirectory] = await Promise.all([
+      loadWorkspace(),
       api(buildListPath('assets', assetPager, assetFilters)),
       api(buildListPath('middleware', middlewarePager, middlewareFilters)),
       api('/oncall'),
@@ -459,7 +460,7 @@ async function loadAll() {
       api(buildListPath('incidents', incidentPager)),
       api('/user-directory')
     ])
-    state.dashboard = { ...emptyDashboard, ...dashboard }
+    state.dashboard = { ...emptyDashboard, ...dashboardWorkspace.value.statistics }
     applyPageResult('assets', assets, assetPager)
     applyPageResult('middleware', middleware, middlewarePager)
     state.oncalls = oncalls
@@ -540,6 +541,10 @@ async function changeInitialPassword() {
 }
 
 function logout() {
+  closeOpenEditors()
+  resetAssetCredentialState()
+  resetMiddlewareCredentialState()
+  resetWorkspace()
   cancelConfirm()
   mobileNavOpen.value = false
   clearToken()
@@ -559,64 +564,68 @@ setSessionExpiredHandler(handleSessionExpired)
 
 async function saveAsset() {
   error.value = ''
-  const required = [
-    ['类型', newAsset.type],
-    ['CPU 架构', newAsset.cpuArch],
-    ['所属业务', newAsset.business],
-    ['IPv4', newAsset.ipv4],
-    ['环境', newAsset.environment],
-    ['操作系统', newAsset.os],
-    ['网络区域', newAsset.networkZone],
-    ['CPU 规格', newAsset.cpu],
-    ['内存规格', newAsset.memory],
-    ['磁盘规格', newAsset.disk],
-    ['部署信息', newAsset.deploymentInfo],
-    ['负责人', newAsset.owner]
-  ]
+  const required = bulkSchemas.assets
+    .filter(([, , required]) => required)
+    .map(([key, label]) => [label, newAsset[key]])
+  if (newAsset.id) required.push(['资产编号', newAsset.assetNo])
+  if (!assetFormCredentialReady.value) return
   const missing = required.filter(([, value]) => !String(value || '').trim()).map(([label]) => label)
   if (missing.length) {
     error.value = `请补齐资产必填项：${missing.join('、')}`
     return
   }
+  const request = assetFormCredentialRequest
+  const payload = { ...newAsset }
+  const formCredential = canManageCredentials.value && hasAssetFormCredential() ? credentialPayload(assetFormCredential) : null
+  const method = payload.id ? 'PUT' : 'POST'
+  const path = payload.id ? `/assets/${payload.id}` : '/assets'
+  assetFormCredentialReady.value = false
+  resetAssetCredentialState()
   try {
-    const method = newAsset.id ? 'PUT' : 'POST'
-    const path = newAsset.id ? `/assets/${newAsset.id}` : '/assets'
-    const item = await api(path, { method, body: JSON.stringify(newAsset) })
+    const item = await api(path, { method, body: JSON.stringify(payload) })
     const existingIndex = state.assets.findIndex((asset) => asset.id === item.id)
     if (existingIndex >= 0) {
       state.assets.splice(existingIndex, 1, item)
     } else {
       state.assets.unshift(item)
     }
-    if (canManageCredentials.value && hasAssetFormCredential()) {
+    if (formCredential) {
       try {
-        const savedCredential = await api(`/assets/${item.id}/credential`, {
+        await api(`/assets/${item.id}/credential`, {
           method: 'PUT',
-          body: JSON.stringify(assetFormCredential)
+          body: JSON.stringify(formCredential)
         })
-        Object.assign(credential, savedCredential, { secret: '' })
-        Object.assign(credentialReveal, { password: '', revealed: false })
-        credentialMessage.value = '资产与登录信息已保存'
       } catch (err) {
-        error.value = `资产已保存，但登录信息保存失败：${err.message}`
+        notify(`资产已保存，但登录信息保存失败：${err.message}`)
+        if (request === assetFormCredentialRequest) {
+          Object.assign(newAsset, item)
+          error.value = `资产已保存，但登录信息保存失败：${err.message}`
+        }
+        return
       }
     }
-    selectedAsset.value = item
-    closeAssetForm()
     await Promise.all([loadAssetPage(), loadDashboard()])
-    selectedAsset.value = state.assets.find(asset => asset.id === item.id) || item
+    if (request === assetFormCredentialRequest) {
+      closeAssetForm()
+      selectedAsset.value = state.assets.find(asset => asset.id === item.id) || item
+    }
     notify(method === 'PUT' ? '资产修改已保存' : '资产已纳管')
   } catch (err) {
-    error.value = `保存资产失败：${err.message}`
+    if (request === assetFormCredentialRequest) error.value = `保存资产失败：${err.message}`
+    else notify(`保存资产失败：${err.message}`)
+  } finally {
+    if (request === assetFormCredentialRequest) assetFormCredentialReady.value = true
   }
 }
 
 function openAssetForm() {
+  resetAssetCredentialState()
   resetAssetForm()
   assetFormOpen.value = true
 }
 
 function closeAssetForm() {
+  resetAssetCredentialState()
   resetAssetForm()
   assetFormOpen.value = false
 }
@@ -648,17 +657,35 @@ function resetAssetForm() {
   resetAssetFormCredential()
 }
 
-function editAsset(asset) {
+async function editAsset(asset) {
   Object.assign(newAsset, { ...asset })
   resetAssetFormCredential()
+  resetAssetCredentialState()
   assetFormOpen.value = true
+  if (!canManageCredentials.value || isSampleRecord(asset)) return
+  const request = assetFormCredentialRequest
+  assetFormCredentialReady.value = false
+  try {
+    const item = await api(`/assets/${asset.id}/credential`)
+    if (request !== assetFormCredentialRequest || newAsset.id !== asset.id) return
+    Object.assign(assetFormCredential, credentialPayload(item), { secret: '' })
+    assetFormCredentialExists.value = true
+    assetFormCredentialReady.value = true
+  } catch (err) {
+    if (request !== assetFormCredentialRequest || newAsset.id !== asset.id) return
+    if (err.status === 404) assetFormCredentialReady.value = true
+    else error.value = `无法加载资产登录信息：${err.message}`
+  }
 }
 
 function hasAssetFormCredential() {
-  return ['loginUrl', 'username', 'secret', 'notes'].some((key) => String(assetFormCredential[key] || '').trim())
+  return assetFormCredentialExists.value || ['loginUrl', 'username', 'secret', 'notes'].some((key) => String(assetFormCredential[key] || '').trim())
 }
 
 function resetAssetFormCredential() {
+  assetFormCredentialRequest++
+  assetFormCredentialReady.value = true
+  assetFormCredentialExists.value = false
   Object.assign(assetFormCredential, { loginUrl: '', username: '', secret: '', notes: '' })
 }
 
@@ -677,6 +704,7 @@ async function deleteAsset(asset) {
       selectedAssetItems.value = selectedAssetItems.value.filter((item) => item.id !== asset.id)
       if (selectedAsset.value?.id === asset.id) {
         selectedAsset.value = null
+        resetAssetCredentialState()
       }
       if (newAsset.id === asset.id) {
         closeAssetForm()
@@ -708,24 +736,23 @@ function exportAsset(asset) {
 
 async function saveMiddleware() {
   error.value = ''
-  const required = [
-    ['实例名称', newMiddleware.name],
-    ['类型', newMiddleware.kind],
-    ['环境', newMiddleware.environment],
-    ['网络区域', newMiddleware.networkZone],
-    ['访问地址 / 端口', newMiddleware.endpoint],
-    ['所属业务', newMiddleware.business],
-    ['负责人', newMiddleware.owner]
-  ]
+  const required = bulkSchemas.middleware
+    .filter(([, , required]) => required)
+    .map(([key, label]) => [label, newMiddleware[key]])
+  if (!middlewareFormCredentialReady.value) return
   const missing = required.filter(([, value]) => !String(value || '').trim()).map(([label]) => label)
   if (missing.length) {
     error.value = `请补齐实例必填项：${missing.join('、')}`
     return
   }
+  const request = middlewareFormCredentialRequest
+  const payload = { ...newMiddleware, assetId: newMiddleware.assetId ? Number(newMiddleware.assetId) : null }
+  const formCredential = canManageCredentials.value && hasMiddlewareFormCredential() ? credentialPayload(middlewareFormCredential) : null
+  const method = payload.id ? 'PUT' : 'POST'
+  const path = payload.id ? `/middleware/${payload.id}` : '/middleware'
+  middlewareFormCredentialReady.value = false
+  resetMiddlewareCredentialState()
   try {
-    const payload = { ...newMiddleware, assetId: newMiddleware.assetId ? Number(newMiddleware.assetId) : null }
-    const method = newMiddleware.id ? 'PUT' : 'POST'
-    const path = newMiddleware.id ? `/middleware/${newMiddleware.id}` : '/middleware'
     const item = await api(path, { method, body: JSON.stringify(payload) })
     const existingIndex = state.middleware.findIndex((entry) => entry.id === item.id)
     if (existingIndex >= 0) {
@@ -733,35 +760,43 @@ async function saveMiddleware() {
     } else {
       state.middleware.unshift(item)
     }
-    if (canManageCredentials.value && hasMiddlewareFormCredential()) {
+    if (formCredential) {
       try {
-        const savedCredential = await api(`/middleware/${item.id}/credential`, {
+        await api(`/middleware/${item.id}/credential`, {
           method: 'PUT',
-          body: JSON.stringify(middlewareFormCredential)
+          body: JSON.stringify(formCredential)
         })
-        Object.assign(middlewareCredential, savedCredential, { secret: '' })
-        Object.assign(middlewareCredentialReveal, { password: '', revealed: false })
-        middlewareCredentialMessage.value = '实例与登录信息已保存'
       } catch (err) {
-        error.value = `实例已保存，但登录信息保存失败：${err.message}`
+        notify(`实例已保存，但登录信息保存失败：${err.message}`)
+        if (request === middlewareFormCredentialRequest) {
+          Object.assign(newMiddleware, item)
+          error.value = `实例已保存，但登录信息保存失败：${err.message}`
+        }
+        return
       }
     }
-    selectedMiddleware.value = item
-    closeMiddlewareForm()
     await Promise.all([loadMiddlewarePage(), loadDashboard()])
-    selectedMiddleware.value = state.middleware.find(entry => entry.id === item.id) || item
+    if (request === middlewareFormCredentialRequest) {
+      closeMiddlewareForm()
+      selectedMiddleware.value = state.middleware.find(entry => entry.id === item.id) || item
+    }
     notify(method === 'PUT' ? '实例修改已保存' : '实例已创建')
   } catch (err) {
-    error.value = `新增实例失败：${err.message}`
+    if (request === middlewareFormCredentialRequest) error.value = `保存实例失败：${err.message}`
+    else notify(`保存实例失败：${err.message}`)
+  } finally {
+    if (request === middlewareFormCredentialRequest) middlewareFormCredentialReady.value = true
   }
 }
 
 function openMiddlewareForm() {
+  resetMiddlewareCredentialState()
   resetMiddlewareForm()
   middlewareFormOpen.value = true
 }
 
 function closeMiddlewareForm() {
+  resetMiddlewareCredentialState()
   resetMiddlewareForm()
   middlewareFormOpen.value = false
 }
@@ -783,17 +818,35 @@ function resetMiddlewareForm() {
   resetMiddlewareFormCredential()
 }
 
-function editMiddleware(item) {
+async function editMiddleware(item) {
   Object.assign(newMiddleware, { ...item, assetId: item.assetId || '' })
   resetMiddlewareFormCredential()
+  resetMiddlewareCredentialState()
   middlewareFormOpen.value = true
+  if (!canManageCredentials.value || isSampleRecord(item)) return
+  const request = middlewareFormCredentialRequest
+  middlewareFormCredentialReady.value = false
+  try {
+    const metadata = await api(`/middleware/${item.id}/credential`)
+    if (request !== middlewareFormCredentialRequest || newMiddleware.id !== item.id) return
+    Object.assign(middlewareFormCredential, credentialPayload(metadata), { secret: '' })
+    middlewareFormCredentialExists.value = true
+    middlewareFormCredentialReady.value = true
+  } catch (err) {
+    if (request !== middlewareFormCredentialRequest || newMiddleware.id !== item.id) return
+    if (err.status === 404) middlewareFormCredentialReady.value = true
+    else error.value = `无法加载实例登录信息：${err.message}`
+  }
 }
 
 function hasMiddlewareFormCredential() {
-  return ['loginUrl', 'username', 'secret', 'notes'].some((key) => String(middlewareFormCredential[key] || '').trim())
+  return middlewareFormCredentialExists.value || ['loginUrl', 'username', 'secret', 'notes'].some((key) => String(middlewareFormCredential[key] || '').trim())
 }
 
 function resetMiddlewareFormCredential() {
+  middlewareFormCredentialRequest++
+  middlewareFormCredentialReady.value = true
+  middlewareFormCredentialExists.value = false
   Object.assign(middlewareFormCredential, { loginUrl: '', username: '', secret: '', notes: '' })
 }
 
@@ -830,7 +883,7 @@ function exportMiddleware(item) {
 }
 
 function downloadBulkTemplate(resource) {
-  downloadText(`${resource}-import-template.csv`, toCsv([], bulkSchemas[resource]))
+  downloadText(`${resource}-import-template.csv`, toCsv([], bulkSchemas[resource], { template: true }))
 }
 
 async function importCsvFile(resource, file) {
@@ -986,15 +1039,25 @@ function importMiddlewareFile(file) {
   return importCsvFile('middleware', file)
 }
 
+function credentialPayload(item) {
+  return {
+    loginUrl: item.loginUrl || '',
+    username: item.username || '',
+    secret: item.secret || '',
+    notes: item.notes || ''
+  }
+}
+
 function chooseAsset(asset) {
   selectedAsset.value = asset
   resetAssetCredentialState()
 }
 
 function resetAssetCredentialState() {
+  assetCredentialRequest++
   credentialMessage.value = ''
   Object.assign(credential, { loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
-  Object.assign(credentialReveal, { password: '', revealed: false })
+  Object.assign(credentialReveal, { password: '', revealed: false, visible: false })
 }
 
 function hideAssetDetail() {
@@ -1008,9 +1071,10 @@ function chooseMiddleware(item) {
 }
 
 function resetMiddlewareCredentialState() {
+  middlewareCredentialRequest++
   middlewareCredentialMessage.value = ''
   Object.assign(middlewareCredential, { loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
-  Object.assign(middlewareCredentialReveal, { password: '', revealed: false })
+  Object.assign(middlewareCredentialReveal, { password: '', revealed: false, visible: false })
 }
 
 function hideMiddlewareDetail() {
@@ -1019,121 +1083,153 @@ function hideMiddlewareDetail() {
 }
 
 async function loadCredential() {
-  if (!selectedAsset.value) return
-  credentialMessage.value = ''
+  if (!selectedAsset.value || !canManageCredentials.value) return
+  const id = selectedAsset.value.id
+  resetAssetCredentialState()
+  const request = assetCredentialRequest
   if (isSampleRecord(selectedAsset.value)) {
     credentialMessage.value = '样例资产不连接后端凭据接口，请新增真实资产后维护登录信息'
     return
   }
   try {
-    const item = await api(`/assets/${selectedAsset.value.id}/credential`)
-    Object.assign(credential, item, { secret: '' })
-    Object.assign(credentialReveal, { password: '', revealed: false })
+    const item = await api(`/assets/${id}/credential`)
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
+    Object.assign(credential, credentialPayload(item), { secret: '', hasSecret: Boolean(item.hasSecret) })
     credentialMessage.value = item.hasSecret ? '登录信息已加载，密码/密钥已隐藏' : '登录信息已加载，当前未保存密码/密钥'
   } catch (err) {
-    credentialMessage.value = `无法加载登录信息：${err.message}`
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
+    credentialMessage.value = err.status === 404 ? '当前未保存登录信息' : `无法加载登录信息：${err.message}`
   }
 }
 
 async function revealCredential() {
+  if (!selectedAsset.value || !canManageCredentials.value) return
   if (isSampleRecord(selectedAsset.value)) {
     credentialMessage.value = '样例资产不支持查看密码/密钥'
     return
   }
-  if (!selectedAsset.value || !credentialReveal.password) {
-    credentialMessage.value = '请输入当前登录密码后再查看密码/密钥'
+  const id = selectedAsset.value.id
+  const password = credentialReveal.password
+  const request = ++assetCredentialRequest
+  Object.assign(credentialReveal, { password: '', revealed: false, visible: false })
+  credential.secret = ''
+  if (!password) {
+    credentialMessage.value = '请输入统一二次校验密码（不是登录密码）后再查看密码/密钥'
     return
   }
   credentialMessage.value = ''
   try {
-    const item = await api(`/assets/${selectedAsset.value.id}/credential/reveal`, {
+    const item = await api(`/assets/${id}/credential/reveal`, {
       method: 'POST',
-      body: JSON.stringify({ password: credentialReveal.password })
+      body: JSON.stringify({ password })
     })
-    Object.assign(credential, item)
-    credentialReveal.revealed = true
-    credentialReveal.password = ''
-    credentialMessage.value = '已通过二次校验，密码/密钥仍以掩码输入框展示'
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
+    Object.assign(credential, credentialPayload(item), { hasSecret: Boolean(item.hasSecret || item.secret) })
+    Object.assign(credentialReveal, { revealed: true, visible: true })
+    credentialMessage.value = '已通过统一二次校验，可隐藏密码/密钥'
   } catch (err) {
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
     credentialMessage.value = `无法查看密码/密钥：${err.message}`
   }
 }
 
 async function saveCredential() {
-  if (!selectedAsset.value) return
+  if (!selectedAsset.value || !canManageCredentials.value) return
   if (isSampleRecord(selectedAsset.value)) {
     credentialMessage.value = '样例资产不支持保存登录信息'
     return
   }
+  const id = selectedAsset.value.id
+  const payload = credentialPayload(credential)
+  const request = ++assetCredentialRequest
+  credential.secret = ''
+  Object.assign(credentialReveal, { password: '', revealed: false, visible: false })
   try {
-    const item = await api(`/assets/${selectedAsset.value.id}/credential`, {
+    const item = await api(`/assets/${id}/credential`, {
       method: 'PUT',
-      body: JSON.stringify(credential)
+      body: JSON.stringify(payload)
     })
-    Object.assign(credential, item, { secret: '' })
-    Object.assign(credentialReveal, { password: '', revealed: false })
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
+    Object.assign(credential, credentialPayload(item), { secret: '', hasSecret: Boolean(item.hasSecret) })
     credentialMessage.value = '登录信息已保存'
   } catch (err) {
+    if (request !== assetCredentialRequest || selectedAsset.value?.id !== id) return
     credentialMessage.value = `保存登录信息失败：${err.message}`
   }
 }
 
 async function loadMiddlewareCredential() {
-  if (!selectedMiddleware.value) return
-  middlewareCredentialMessage.value = ''
+  if (!selectedMiddleware.value || !canManageCredentials.value) return
+  const id = selectedMiddleware.value.id
+  resetMiddlewareCredentialState()
+  const request = middlewareCredentialRequest
   if (isSampleRecord(selectedMiddleware.value)) {
     middlewareCredentialMessage.value = '样例实例不连接后端凭据接口，请新增真实实例后维护账号密码'
     return
   }
   try {
-    const item = await api(`/middleware/${selectedMiddleware.value.id}/credential`)
-    Object.assign(middlewareCredential, item, { secret: '' })
-    Object.assign(middlewareCredentialReveal, { password: '', revealed: false })
+    const item = await api(`/middleware/${id}/credential`)
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
+    Object.assign(middlewareCredential, credentialPayload(item), { secret: '', hasSecret: Boolean(item.hasSecret) })
     middlewareCredentialMessage.value = item.hasSecret ? '实例账号密码已加载，密码/密钥已隐藏' : '实例账号密码已加载，当前未保存密码/密钥'
   } catch (err) {
-    middlewareCredentialMessage.value = `无法加载实例账号密码：${err.message}`
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
+    middlewareCredentialMessage.value = err.status === 404 ? '当前未保存实例账号密码' : `无法加载实例账号密码：${err.message}`
   }
 }
 
 async function revealMiddlewareCredential() {
+  if (!selectedMiddleware.value || !canManageCredentials.value) return
   if (isSampleRecord(selectedMiddleware.value)) {
     middlewareCredentialMessage.value = '样例实例不支持查看密码/密钥'
     return
   }
-  if (!selectedMiddleware.value || !middlewareCredentialReveal.password) {
-    middlewareCredentialMessage.value = '请输入当前登录密码后再查看密码/密钥'
+  const id = selectedMiddleware.value.id
+  const password = middlewareCredentialReveal.password
+  const request = ++middlewareCredentialRequest
+  Object.assign(middlewareCredentialReveal, { password: '', revealed: false, visible: false })
+  middlewareCredential.secret = ''
+  if (!password) {
+    middlewareCredentialMessage.value = '请输入统一二次校验密码（不是登录密码）后再查看密码/密钥'
     return
   }
   middlewareCredentialMessage.value = ''
   try {
-    const item = await api(`/middleware/${selectedMiddleware.value.id}/credential/reveal`, {
+    const item = await api(`/middleware/${id}/credential/reveal`, {
       method: 'POST',
-      body: JSON.stringify({ password: middlewareCredentialReveal.password })
+      body: JSON.stringify({ password })
     })
-    Object.assign(middlewareCredential, item)
-    middlewareCredentialReveal.revealed = true
-    middlewareCredentialReveal.password = ''
-    middlewareCredentialMessage.value = '已通过二次校验，密码/密钥仍以掩码输入框展示'
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
+    Object.assign(middlewareCredential, credentialPayload(item), { hasSecret: Boolean(item.hasSecret || item.secret) })
+    Object.assign(middlewareCredentialReveal, { revealed: true, visible: true })
+    middlewareCredentialMessage.value = '已通过统一二次校验，可隐藏密码/密钥'
   } catch (err) {
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
     middlewareCredentialMessage.value = `无法查看密码/密钥：${err.message}`
   }
 }
 
 async function saveMiddlewareCredential() {
-  if (!selectedMiddleware.value) return
+  if (!selectedMiddleware.value || !canManageCredentials.value) return
   if (isSampleRecord(selectedMiddleware.value)) {
     middlewareCredentialMessage.value = '样例实例不支持保存账号密码'
     return
   }
+  const id = selectedMiddleware.value.id
+  const payload = credentialPayload(middlewareCredential)
+  const request = ++middlewareCredentialRequest
+  middlewareCredential.secret = ''
+  Object.assign(middlewareCredentialReveal, { password: '', revealed: false, visible: false })
   try {
-    const item = await api(`/middleware/${selectedMiddleware.value.id}/credential`, {
+    const item = await api(`/middleware/${id}/credential`, {
       method: 'PUT',
-      body: JSON.stringify(middlewareCredential)
+      body: JSON.stringify(payload)
     })
-    Object.assign(middlewareCredential, item, { secret: '' })
-    Object.assign(middlewareCredentialReveal, { password: '', revealed: false })
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
+    Object.assign(middlewareCredential, credentialPayload(item), { secret: '', hasSecret: Boolean(item.hasSecret) })
     middlewareCredentialMessage.value = '实例账号密码已保存'
   } catch (err) {
+    if (request !== middlewareCredentialRequest || selectedMiddleware.value?.id !== id) return
     middlewareCredentialMessage.value = `保存实例账号密码失败：${err.message}`
   }
 }
@@ -1718,7 +1814,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'auth-app': !hasAppAccess, 'sidebar-collapsed': hasAppAccess && sidebarCollapsed && !mobileNavOpen }">
+  <div class="app" :class="{ 'auth-app': !hasAppAccess, 'review-shell': hasAppAccess, 'drawer-open': mobileNavOpen }">
     <button
       v-if="hasAppAccess && mobileNavOpen"
       class="mobile-nav-backdrop"
@@ -1726,31 +1822,35 @@ onUnmounted(() => {
       aria-label="关闭导航"
       @click="mobileNavOpen = false"
     />
+    <Topbar
+      v-if="hasAppAccess"
+      :breadcrumb="activeBreadcrumb"
+      :title="activeTitle"
+      :subtitle="activeSubtitle"
+      :error="error"
+      :loading="loading"
+      :username="auth.user?.displayName || auth.user?.username || ''"
+      :authenticated="Boolean(auth.token)"
+      :theme="theme"
+      :mobile-open="mobileNavOpen"
+      :preview="dashboardPreview"
+      @navigate="goToView"
+      @open-navigation="mobileNavOpen = true"
+      @change-theme="changeTheme"
+      @open-copilot="copilotOpen = true"
+      @logout="logout"
+    />
     <SidebarNav
       v-if="hasAppAccess"
       :active-view="activeView"
       :permission-tab="permissionTab"
-      :collapsed="sidebarCollapsed && !mobileNavOpen"
       :mobile-open="mobileNavOpen"
-      @toggle="toggleSidebarNavigation"
+      @close="mobileNavOpen = false"
+      @open-copilot="copilotOpen = true"
       @navigate="goToView"
     />
 
-    <main class="main">
-      <Topbar
-        v-if="hasAppAccess"
-        :breadcrumb="activeBreadcrumb"
-        :title="activeTitle"
-        :subtitle="activeSubtitle"
-        :error="error"
-        :loading="loading"
-        :username="auth.user?.username || 'admin'"
-        :authenticated="Boolean(auth.token)"
-        @open-navigation="mobileNavOpen = true"
-        @open-copilot="copilotOpen = true"
-        @logout="logout"
-      />
-
+    <main class="main" :class="{ 'review-main': hasAppAccess }">
       <AuthView
         v-if="!hasAppAccess"
         :auth="auth"
@@ -1767,16 +1867,16 @@ onUnmounted(() => {
       <template v-else>
         <DashboardView
           v-if="activeView === 'dashboard'"
-          :asset-count="dashboardAssetCount"
-          :oncall-count="dashboardOncallCount"
-          :task-count="dashboardTaskCount"
-          :incident-count="dashboardIncidentCount"
-          :asset-bars="assetKpiBars"
-          :today-oncall="todayOncall"
-          :task-cards="taskKpiCards"
-          :incident-levels="incidentKpiLevels"
-          :metrics="dashboardMetrics"
-          :priority-items="dashboardPriorityItems"
+          :workspace="dashboardWorkspace"
+          :preview="dashboardPreview"
+          :preview-enabled="previewEnabled"
+          :preview-loading="previewLoading"
+          :preview-error="previewError"
+          :username="auth.user?.displayName || auth.user?.username || ''"
+          @toggle-preview="previewEnabled = $event"
+          @preview-query="loadPreview"
+          @open-copilot="copilotOpen = true"
+          @notify="notify"
           @navigate="goToView"
           @open-priority="openPriorityItem"
         />
@@ -1795,6 +1895,7 @@ onUnmounted(() => {
           :filters="assetFilters"
           :form="newAsset"
           :form-credential="assetFormCredential"
+          :form-credential-ready="assetFormCredentialReady"
           :form-open="assetFormOpen"
           :is-sample="isSampleRecord"
           :network-zones="assetNetworkZones"
@@ -1843,6 +1944,7 @@ onUnmounted(() => {
           :filters="middlewareFilters"
           :form="newMiddleware"
           :form-credential="middlewareFormCredential"
+          :form-credential-ready="middlewareFormCredentialReady"
           :form-open="middlewareFormOpen"
           :is-sample="isSampleRecord"
           :network-zones="middlewareNetworkZones"

@@ -154,10 +154,10 @@ test('keeps the collapsed dashboard readable on a mobile viewport', async ({ pag
   await loginViaUI(page)
 
   const mainBox = await page.locator('.main').boundingBox()
-  const firstKpiBox = await page.locator('.kpi-card').first().boundingBox()
+  const firstKpiBox = await page.locator('.review-dashboard .kpi').first().boundingBox()
 
   expect(mainBox?.width).toBeGreaterThan(340)
-  expect(firstKpiBox?.width).toBeGreaterThan(300)
+  expect(firstKpiBox?.width).toBeGreaterThanOrEqual(160)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 
   const openNavigation = page.getByRole('button', { name: '打开导航' })
@@ -193,8 +193,7 @@ async function goHome(page) {
 }
 
 async function goNav(page, label, expectedTitle) {
-  await ensureSidebarExpanded(page)
-  await page.locator('button.nav-child', { hasText: label }).first().click()
+  await page.locator('.review-sidebar button.nav', { hasText: label }).first().click()
   await expect(page.locator('.topbar h1')).toHaveText(expectedTitle)
 }
 
@@ -268,18 +267,18 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
 
   try {
     await loginViaUI(page)
-    await ensureSidebarExpanded(page)
-    await expect(page.locator('.topbar').getByTitle('打开 AI Copilot')).toBeVisible()
+    await page.getByRole('button', { name: '打开 AI Copilot' }).click()
+    await page.getByRole('dialog', { name: 'OpsCore AI Copilot' }).press('Escape')
 
     const dashboardCards = [
       { label: '纳管资产', title: '资产台账（CMDB）' },
-      { label: '今日值班', title: '值班管理' },
-      { label: '进行中任务', title: '任务跟踪' },
-      { label: '活跃事件', title: '事件管理' }
+      { label: '当前值班', title: '值班管理' },
+      { label: '待处理事件', title: '事件管理' }
     ]
     for (const card of dashboardCards) {
       await goHome(page)
-      await page.locator('.kpi-card', { hasText: card.label }).click()
+      const cardButton = card.label === '当前值班' ? page.getByRole('button', { name: '当前值班', exact: true }) : page.locator('.review-dashboard .kpi', { hasText: card.label })
+      await cardButton.click()
       await expect(page.locator('.topbar h1')).toHaveText(card.title)
     }
 

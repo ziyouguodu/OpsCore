@@ -10,34 +10,57 @@ async function login(page) {
   await expect(page.locator('.topbar h1')).toHaveText('首页健康总览')
 }
 
-test('collapsed category icons open navigation to implemented workspaces', async ({ page }) => {
+test('shows the expanded OpsCore category menu and navigates to implemented workspaces', async ({ page }) => {
   await login(page)
-  const brand = page.locator('.sidebar .brand-lockup')
+  const brand = page.locator('.review-topbar .brand')
   const brandLogo = brand.locator('img')
   await expect(brandLogo).toBeVisible()
   await expect(brandLogo).toHaveAttribute('alt', 'OpsCore logo')
   await expect(brand.getByText('OpsCore', { exact: true })).toBeVisible()
-  const brandBox = await brand.boundingBox()
-  const toggleBox = await page.getByRole('button', { name: '展开菜单' }).boundingBox()
-  expect(toggleBox.y - (brandBox.y + brandBox.height)).toBeGreaterThanOrEqual(18)
+  await expect(page.locator('.review-sidebar .brand')).toHaveCount(0)
+  await expect(page.locator('.review-sidebar .nav-title')).toHaveCount(0)
+  const assets = page.getByRole('button', { name: '资产管理', exact: true })
+  await expect(assets).toHaveAttribute('aria-expanded', 'true')
+  const beforeCollapse = page.url()
+  await assets.click()
+  await expect(assets).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: '资产台账（CMDB）', exact: true })).toBeHidden()
+  expect(page.url()).toBe(beforeCollapse)
+  await assets.press('Enter')
+  await expect(assets).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('.review-sidebar button > svg')).toHaveCount(await page.locator('.review-sidebar button:not(.drawer-close)').count())
 
   const destinations = [
     ['资产管理', '资产台账（CMDB）', '资产台账（CMDB）'],
     ['协同与事件响应', '值班管理', '值班管理'],
-    ['权限管理', '菜单与资源权限', '权限管理'],
+    ['权限管理', '用户与角色', '权限管理'],
     ['系统配置', 'AI Copilot 配置', 'AI Copilot 配置']
   ]
 
   for (const [group, destination, title] of destinations) {
-    await page.getByRole('button', { name: `展开${group}菜单` }).click()
-    await expect(page.getByRole('button', { name: new RegExp(destination) })).toBeVisible()
-    await page.getByRole('button', { name: new RegExp(destination) }).click()
+    const toggle = page.getByRole('button', { name: group, exact: true })
+    if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click()
+    await expect(page.getByRole('button', { name: destination, exact: true })).toBeVisible()
+    await page.getByRole('button', { name: destination, exact: true }).click()
     await expect(page.locator('.topbar h1')).toHaveText(title)
     if (destination === '菜单与资源权限') {
       await expect(page.locator('.nav-child.active')).toContainText('菜单与资源权限')
     }
-    await page.getByLabel('收起菜单').click()
+    await page.getByRole('button', { name: '首页仪表盘' }).click()
   }
+  await page.getByRole('button', { name: '权限管理', exact: true }).click()
+  await expect(page.locator('.topbar h1')).toHaveText('首页健康总览')
+  await page.getByRole('button', { name: '权限管理', exact: true }).press('Enter')
+  await page.getByRole('button', { name: '用户与角色', exact: true }).click()
+  await expect(page.locator('.review-sidebar .nav.active')).toHaveCount(1)
+  await expect(page.locator('.topbar h1')).toHaveText('权限管理')
+  const settings = page.getByRole('button', { name: '系统配置', exact: true })
+  await settings.click()
+  await expect(page.locator('.topbar h1')).toHaveText('权限管理')
+  await settings.press('Enter')
+  await page.getByRole('button', { name: 'AI Copilot 配置', exact: true }).click()
+  await expect(page.locator('.topbar h1')).toHaveText('AI Copilot 配置')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => innerWidth))
 })
 
 test('renders Copilot Markdown as readable structured content and keeps HTML inert', async ({ page }) => {

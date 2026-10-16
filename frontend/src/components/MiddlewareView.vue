@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import PaginationBar from './PaginationBar.vue'
 import BulkDataTools from './BulkDataTools.vue'
+import { bulkSchemas } from '../bulk-data'
 
 const props = defineProps({
   associatedAssetName: { type: Function, required: true },
@@ -16,6 +17,7 @@ const props = defineProps({
   filters: { type: Object, required: true },
   form: { type: Object, required: true },
   formCredential: { type: Object, required: true },
+  formCredentialReady: { type: Boolean, default: true },
   formOpen: { type: Boolean, default: false },
   isSample: { type: Function, required: true },
   networkZones: { type: Array, default: () => [] },
@@ -62,6 +64,13 @@ function isSelected(id) {
 }
 
 const middlewareKinds = ['MySQL', 'Redis', 'Kafka', 'PostgreSQL', '达梦', 'Nginx', 'ElasticSearch', 'Nacos', 'RocketMQ', 'MinIO']
+
+const middlewareFields = bulkSchemas.middleware.map(([key, label, required]) => ({
+  key,
+  label: ({ kind: '实例类型', endpoint: '访问地址或端口', assetId: '关联资产 ID', status: '实例状态' })[key] || label,
+  required: Boolean(required),
+  options: ({ kind: middlewareKinds, environment: ['生产', '仿真', '研发'], status: ['运行中', '维护中', '停用', '故障'] })[key]
+}))
 
 function resetPage() {
   emit('update:page', 1)
@@ -116,29 +125,24 @@ function closeEditorOnFocusOut(event) {
         <section v-if="formOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
           <h3>{{ form.id ? '编辑实例' : '新增实例' }}</h3>
           <div class="form-grid">
-            <input v-model="form.name" aria-label="实例名称" placeholder="实例名称" />
-            <select v-model="form.kind" aria-label="实例类型"><option v-for="kind in middlewareKinds" :key="kind">{{ kind }}</option></select>
-            <input v-model="form.version" aria-label="版本" placeholder="版本" />
-            <select v-model="form.environment" aria-label="环境"><option>生产</option><option>仿真</option><option>研发</option></select>
-            <input v-model="form.networkZone" aria-label="网络区域" placeholder="网络区域" />
-            <input v-model="form.endpoint" aria-label="访问地址或端口" placeholder="访问地址 / 端口" />
-            <input v-model="form.business" aria-label="所属业务" placeholder="所属业务" />
-            <input v-model="form.owner" aria-label="负责人" placeholder="负责人" />
-            <input v-model="form.assetId" aria-label="关联资产 ID" placeholder="关联资产 ID（非必填）" />
-            <select v-model="form.status" aria-label="实例状态"><option>运行中</option><option>维护中</option><option>停用</option><option>故障</option></select>
+            <label v-for="field in middlewareFields" :key="field.key">
+              <span>{{ field.label }}{{ field.required ? '（必填）' : '（可选）' }}</span>
+              <select v-if="field.options" v-model="form[field.key]" :aria-label="field.label" :required="field.required" :aria-required="field.required"><option v-for="option in field.options" :key="option">{{ option }}</option></select>
+              <input v-else v-model="form[field.key]" :aria-label="field.label" :placeholder="field.label" :required="field.required" :aria-required="field.required" />
+            </label>
             <section v-if="canManageCredentials" class="credential-inline form-wide">
               <div>
                 <strong>实例登录信息</strong>
                 <span>保存后加密存储，列表不展示；查看密码需统一二次校验。</span>
               </div>
               <div class="form-grid credential-form-inline">
-                <input v-model="formCredential.loginUrl" aria-label="管理地址或连接入口" placeholder="管理地址 / 连接入口（可选）" />
-                <input v-model="formCredential.username" aria-label="登录用户名" placeholder="登录用户名" />
-                <input v-model="formCredential.secret" aria-label="登录密码或密钥" placeholder="登录密码 / 密钥" type="password" />
-                <input v-model="formCredential.notes" aria-label="登录信息备注" placeholder="备注" />
+                <label>管理地址或连接入口（可选）<input v-model="formCredential.loginUrl" :disabled="!formCredentialReady" aria-label="管理地址或连接入口" placeholder="管理地址 / 连接入口" /></label>
+                <label>登录用户名（可选）<input v-model="formCredential.username" :disabled="!formCredentialReady" aria-label="登录用户名" placeholder="登录用户名" /></label>
+                <label>登录密码或密钥（可选）<input v-model="formCredential.secret" :disabled="!formCredentialReady" aria-label="登录密码或密钥" placeholder="留空则保留原值" type="password" /></label>
+                <label>登录信息备注（可选）<input v-model="formCredential.notes" :disabled="!formCredentialReady" aria-label="登录信息备注" placeholder="备注" /></label>
               </div>
             </section>
-            <button class="primary" :disabled="!canWrite" @click="$emit('save')">{{ form.id ? '保存修改' : '保存实例' }}</button>
+            <button class="primary" :disabled="!canWrite || !formCredentialReady" @click="$emit('save')">{{ form.id ? '保存修改' : '保存实例' }}</button>
             <button @click="$emit('close-form')">取消</button>
           </div>
         </section>
@@ -188,7 +192,7 @@ function closeEditorOnFocusOut(event) {
         <div class="credential-box">
           <h4>实例账号密码</h4>
           <template v-if="canManageCredentials">
-            <p class="muted">用于保存数据库、中间件或组件实例的访问账号；密码/密钥默认隐藏，需输入权限管理中配置的统一校验密码后查看。</p>
+            <p class="muted">用于保存数据库、中间件或组件实例的访问账号；密码/密钥默认隐藏，需输入权限管理中配置的统一二次校验密码（不是登录密码）后查看。</p>
             <div class="credential-actions">
               <button @click="$emit('load-credential')">加载账号密码</button>
               <span v-if="credential.hasSecret" class="pill danger">已保存密钥</span>
@@ -197,7 +201,8 @@ function closeEditorOnFocusOut(event) {
             <div class="form-grid credential-form">
               <input v-model="credential.loginUrl" aria-label="管理地址或连接入口" placeholder="管理地址 / 连接入口" />
               <input v-model="credential.username" aria-label="登录账号" placeholder="账号" />
-              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" type="password" />
+              <input v-model="credential.secret" aria-label="密码或密钥" placeholder="密码 / 密钥（留空则保留原值）" :type="credentialReveal.revealed && credentialReveal.visible ? 'text' : 'password'" />
+              <button v-if="credentialReveal.revealed" :aria-pressed="credentialReveal.visible" @click="credentialReveal.visible = !credentialReveal.visible">{{ credentialReveal.visible ? '隐藏密码/密钥' : '显示密码/密钥' }}</button>
               <input v-model="credential.notes" aria-label="登录信息备注" placeholder="备注" />
               <button class="primary" @click="$emit('save-credential')">保存账号密码</button>
             </div>
