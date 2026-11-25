@@ -1,0 +1,368 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index e3db83186ac0c06ff970d9ba36d7a9ad13f0a18f..2fc0052c8fc08e1885c382f18ffbe9ed4e1a79f1 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -95,7 +95,7 @@ OpsCore 是一个智能运维平台项目，产品定位为智能运维中枢指
+ - 普通 API 响应不得暴露明文凭据。凭据查看必须保留权限校验和密码验证。
+ - 资产与实例表单保存必须使用提交时的基础字段和凭据快照；保存期间阻止重复提交，切换或关闭表单后旧响应不得覆盖新表单、详情或选中记录。基础记录已保存而凭据失败时，保留记录 ID 与输入供重试，避免再次创建记录。
+ - 敏感凭据只能使用超级管理员配置的统一二次校验密码查看；统一密码未配置时必须拒绝明文查看，不能回退当前账号登录密码。
+-- 登录和凭据二次验证必须保留失败次数限制与临时锁定；新增认证入口或敏感验证入口时不能绕过统一限流。
++- 登录和凭据二次验证必须保留失败次数限制与临时锁定；登录另按可信客户端 IP 限制每分钟最多 60 次请求。每个限流器状态必须按时间窗口清理并限制在 10,000 个键以内；达到上限时拒绝新键，不得驱逐仍有效的锁定状态。新增认证入口或敏感验证入口时不能绕过统一限流。
+ - 登录、用户与角色、凭据查看、配置、值班、任务和事件等关键写操作必须记录服务端审计事件；审计详情不得包含密码、Token、API Key 或明文凭据。
+ - 保留首次登录修改密码门禁。`mustChangePassword` 用户不得访问业务 API。
+ - API 授权必须使用数据库中的当前用户角色，不能长期信任 Token 签发时的旧角色；角色调整后已有 Token 应立即按最新权限生效。
+diff --git a/README.md b/README.md
+index abe05d114fffe2cb942c1d4f3d8c524204e7bd93..5e367eb8b9b1a51bed3c4080d4476b89e71db31c 100644
+--- a/README.md
++++ b/README.md
+@@ -402,6 +402,7 @@ scripts/reset-admin-password.sh 'TempAdmin123!'
+ - 二次校验失败返回 `403`，共享失败计数和临时锁定仍有效；只有真实会话/Token失效返回 `401` 并清理会话，`429` 不表示退出登录。
+ - 统一校验密码使用服务端随机盐哈希存储，配置响应仅返回 `hasPassword`。传输保护依赖对外HTTPS；浏览器开发者工具可见本人输入的请求体，不等于HTTPS线路明文，前端Base64或哈希不能代替TLS。
+ - 登录和凭据二次验证连续失败会触发临时锁定并返回 `429`。
++- 登录请求还会按可信客户端 IP 限制为每分钟最多 60 次；限流状态按时间窗口回收，每个限流器最多保留 10,000 个键，达到上限时拒绝新键并保留有效锁定。
+ - 生产环境必须固定保存 `OPSCORE_CREDENTIAL_ENCRYPTION_KEY`。密钥变更后，旧密文将无法解密。
+ 
+ ### 操作审计
+diff --git a/WORKLOG.md b/WORKLOG.md
+index d5e61ac1935bafcd79357a77d1fce1098a35aec0..53ae5e0e14f6c5368f7ea188aaecd311d221a23b 100644
+--- a/WORKLOG.md
++++ b/WORKLOG.md
+@@ -1,5 +1,11 @@
+ # WORKLOG.md
+ 
++## 2026-10-26 - 登录限流状态有界化
++
++- 登录保留用户名/IP 失败计数和临时锁定，新增按客户端 IP 每分钟 60 次的请求限流；用户名仅以固定长度摘要参与内存键，避免超长用户名长期留在 limiter map。
++- 失败计数与请求窗口限流器都会清理已过期键，并将每个 limiter map 限制在 10,000 个键；清理最多每分钟运行一次，达到上限时拒绝新键并等待下次清理，不驱逐仍有效的账号锁定，也不会为每个被拒键重复扫描整个 map。补充唯一用户名聚合限流、超长键、过期回收、状态上限和活动锁保护测试。
++- 在临时工作副本中，`GOCACHE=/private/tmp/opscore-fixfinding-gocache go test ./internal/api -run 'Test(FailureLimiter|RequestWindowLimiter|LoginEndpoint|LoginRateKey)'` 与 `GOCACHE=/private/tmp/opscore-fixfinding-gocache go test ./...` 通过；未在选中工作树应用或验证此补丁。
++
+ ## 2026-09-25 - 折叠侧栏品牌间距与文字
+ 
+ - 折叠侧栏的品牌区域改为 Logo 在上、OpsCore 文字在下，并将品牌区与菜单展开按钮间距调整为 20px，保留 82px 侧栏宽度。
+diff --git a/backend/internal/api/rate_limit.go b/backend/internal/api/rate_limit.go
+index 034ad5073663fe6f90894754dbe3e417cf7963cc..c0c8a8f75b54e56ffe329354d70db532dff3d5d7 100644
+--- a/backend/internal/api/rate_limit.go
++++ b/backend/internal/api/rate_limit.go
+@@ -1,6 +1,7 @@
+ package api
+ 
+ import (
++	"crypto/sha256"
+ 	"fmt"
+ 	"net"
+ 	"net/http"
+@@ -10,26 +11,30 @@ import (
+ 	"time"
+ )
+ 
++const maxRateLimiterBuckets = 10_000
++
+ type failureBucket struct {
+ 	failures     []time.Time
+ 	blockedUntil time.Time
+ }
+ 
+ type failureLimiter struct {
+-	mu       sync.Mutex
+-	buckets  map[string]failureBucket
+-	max      int
+-	window   time.Duration
+-	blockFor time.Duration
+-	now      func() time.Time
++	mu          sync.Mutex
++	buckets     map[string]failureBucket
++	max         int
++	window      time.Duration
++	blockFor    time.Duration
++	now         func() time.Time
++	nextCleanup time.Time
+ }
+ 
+ type requestWindowLimiter struct {
+-	mu      sync.Mutex
+-	buckets map[string][]time.Time
+-	max     int
+-	window  time.Duration
+-	now     func() time.Time
++	mu          sync.Mutex
++	buckets     map[string][]time.Time
++	max         int
++	window      time.Duration
++	now         func() time.Time
++	nextCleanup time.Time
+ }
+ 
+ func newRequestWindowLimiter(max int, window time.Duration) *requestWindowLimiter {
+@@ -40,14 +45,36 @@ func (l *requestWindowLimiter) Allow(key string) (bool, time.Duration) {
+ 	l.mu.Lock()
+ 	defer l.mu.Unlock()
+ 	now := l.now()
+-	values := recentFailures(l.buckets[key], now.Add(-l.window))
++	l.cleanup(now)
++	cutoff := now.Add(-l.window)
++	values, exists := l.buckets[key]
++	values = recentFailures(values, cutoff)
+ 	if len(values) >= l.max {
+ 		return false, max(time.Second, values[0].Add(l.window).Sub(now))
+ 	}
++	if !exists && len(l.buckets) >= maxRateLimiterBuckets {
++		return false, max(time.Second, l.nextCleanup.Sub(now))
++	}
+ 	l.buckets[key] = append(values, now)
+ 	return true, 0
+ }
+ 
++func (l *requestWindowLimiter) cleanup(now time.Time) {
++	if now.Before(l.nextCleanup) {
++		return
++	}
++	cutoff := now.Add(-l.window)
++	for key, values := range l.buckets {
++		values = recentFailures(values, cutoff)
++		if len(values) == 0 {
++			delete(l.buckets, key)
++			continue
++		}
++		l.buckets[key] = values
++	}
++	l.nextCleanup = now.Add(min(l.window, time.Minute))
++}
++
+ func newFailureLimiter(max int, window, blockFor time.Duration) *failureLimiter {
+ 	return &failureLimiter{
+ 		buckets:  make(map[string]failureBucket),
+@@ -62,6 +89,10 @@ func (l *failureLimiter) Allow(key string) (bool, time.Duration) {
+ 	l.mu.Lock()
+ 	defer l.mu.Unlock()
+ 	now := l.now()
++	l.cleanup(now)
++	if _, exists := l.buckets[key]; !exists && len(l.buckets) >= maxRateLimiterBuckets {
++		return false, max(time.Second, l.nextCleanup.Sub(now))
++	}
+ 	bucket := l.buckets[key]
+ 	if bucket.blockedUntil.After(now) {
+ 		return false, bucket.blockedUntil.Sub(now)
+@@ -76,6 +107,10 @@ func (l *failureLimiter) Failure(key string) {
+ 	l.mu.Lock()
+ 	defer l.mu.Unlock()
+ 	now := l.now()
++	l.cleanup(now)
++	if _, exists := l.buckets[key]; !exists && len(l.buckets) >= maxRateLimiterBuckets {
++		return
++	}
+ 	bucket := l.buckets[key]
+ 	bucket.failures = append(recentFailures(bucket.failures, now.Add(-l.window)), now)
+ 	if len(bucket.failures) >= l.max {
+@@ -84,6 +119,22 @@ func (l *failureLimiter) Failure(key string) {
+ 	l.buckets[key] = bucket
+ }
+ 
++func (l *failureLimiter) cleanup(now time.Time) {
++	if now.Before(l.nextCleanup) {
++		return
++	}
++	cutoff := now.Add(-l.window)
++	for key, bucket := range l.buckets {
++		bucket.failures = recentFailures(bucket.failures, cutoff)
++		if !bucket.blockedUntil.After(now) && len(bucket.failures) == 0 {
++			delete(l.buckets, key)
++			continue
++		}
++		l.buckets[key] = bucket
++	}
++	l.nextCleanup = now.Add(min(l.window, time.Minute))
++}
++
+ func (l *failureLimiter) Success(key string) {
+ 	l.mu.Lock()
+ 	defer l.mu.Unlock()
+@@ -105,6 +156,9 @@ func (s *Server) initRateLimiters() {
+ 		if s.loginLimiter == nil {
+ 			s.loginLimiter = newFailureLimiter(5, 15*time.Minute, 15*time.Minute)
+ 		}
++		if s.loginRequestLimiter == nil {
++			s.loginRequestLimiter = newRequestWindowLimiter(60, time.Minute)
++		}
+ 		if s.credentialLimiter == nil {
+ 			s.credentialLimiter = newFailureLimiter(5, 10*time.Minute, 10*time.Minute)
+ 		}
+@@ -119,6 +173,11 @@ func (s *Server) loginAttempts() *failureLimiter {
+ 	return s.loginLimiter
+ }
+ 
++func (s *Server) loginRequests() *requestWindowLimiter {
++	s.initRateLimiters()
++	return s.loginRequestLimiter
++}
++
+ func (s *Server) credentialAttempts() *failureLimiter {
+ 	s.initRateLimiters()
+ 	return s.credentialLimiter
+@@ -130,7 +189,8 @@ func (s *Server) copilotRequests() *requestWindowLimiter {
+ }
+ 
+ func loginRateKey(r *http.Request, username string, trustProxy bool) string {
+-	return strings.ToLower(strings.TrimSpace(username)) + "|" + clientIP(r, trustProxy)
++	usernameHash := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(username))))
++	return fmt.Sprintf("%x|%s", usernameHash, clientIP(r, trustProxy))
+ }
+ 
+ func credentialRateKey(r *http.Request, userID int64, trustProxy bool) string {
+diff --git a/backend/internal/api/rate_limit_test.go b/backend/internal/api/rate_limit_test.go
+index 8e6df70914d490e4eeb7e3ae6f77bb16c513fdfb..90615adeb8f0e85114f716e2d8e4dc0419d93c03 100644
+--- a/backend/internal/api/rate_limit_test.go
++++ b/backend/internal/api/rate_limit_test.go
+@@ -3,6 +3,7 @@ package api
+ import (
+ 	"net/http"
+ 	"net/http/httptest"
++	"strconv"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -65,6 +66,62 @@ func TestRequestWindowLimiterCapsCostBearingRequests(t *testing.T) {
+ 	}
+ }
+ 
++func TestRequestWindowLimiterExpiresUnusedKeysAndCapsState(t *testing.T) {
++	now := time.Date(2026, 7, 10, 9, 0, 0, 0, time.UTC)
++	limiter := newRequestWindowLimiter(2, time.Minute)
++	limiter.now = func() time.Time { return now }
++	for i := 0; i < maxRateLimiterBuckets; i++ {
++		limiter.buckets[strconv.Itoa(i)] = []time.Time{now.Add(-time.Minute)}
++	}
++	if allowed, _ := limiter.Allow("fresh"); !allowed || len(limiter.buckets) != 1 {
++		t.Fatalf("expected expired untouched buckets to be reclaimed, allowed=%v buckets=%d", allowed, len(limiter.buckets))
++	}
++
++	full := newRequestWindowLimiter(2, time.Minute)
++	full.now = func() time.Time { return now }
++	for i := 0; i < maxRateLimiterBuckets; i++ {
++		full.buckets[strconv.Itoa(i)] = []time.Time{now}
++	}
++	if allowed, retryAfter := full.Allow("overflow"); allowed || retryAfter <= 0 || len(full.buckets) != maxRateLimiterBuckets {
++		t.Fatalf("expected a full limiter to reject new keys without growing, allowed=%v retry=%v buckets=%d", allowed, retryAfter, len(full.buckets))
++	}
++	nextCleanup := full.nextCleanup
++	now = now.Add(time.Second)
++	if allowed, _ := full.Allow("another-overflow"); allowed || !full.nextCleanup.Equal(nextCleanup) {
++		t.Fatal("rejected fresh keys must wait for the scheduled sweep instead of triggering repeated full-map scans")
++	}
++}
++
++func TestFailureLimiterExpiresUnusedKeysAndPreservesActiveLocksAtCapacity(t *testing.T) {
++	now := time.Date(2026, 7, 10, 9, 0, 0, 0, time.UTC)
++	limiter := newFailureLimiter(2, time.Minute, 5*time.Minute)
++	limiter.now = func() time.Time { return now }
++	for i := 0; i < maxRateLimiterBuckets-1; i++ {
++		limiter.buckets[strconv.Itoa(i)] = failureBucket{failures: []time.Time{now.Add(-2 * time.Minute)}}
++	}
++	limiter.buckets["blocked"] = failureBucket{blockedUntil: now.Add(5 * time.Minute)}
++	if allowed, _ := limiter.Allow("fresh"); !allowed || len(limiter.buckets) != 2 {
++		t.Fatalf("expected expired keys to be swept while retaining the active lock, allowed=%v buckets=%d", allowed, len(limiter.buckets))
++	}
++	if allowed, retryAfter := limiter.Allow("blocked"); allowed || retryAfter != 5*time.Minute {
++		t.Fatalf("expected active lock to remain enforced, allowed=%v retry=%v", allowed, retryAfter)
++	}
++
++	full := newFailureLimiter(2, time.Minute, time.Minute)
++	full.now = func() time.Time { return now }
++	for i := 0; i < maxRateLimiterBuckets; i++ {
++		full.buckets[strconv.Itoa(i)] = failureBucket{failures: []time.Time{now}}
++	}
++	if allowed, retryAfter := full.Allow("overflow"); allowed || retryAfter <= 0 || len(full.buckets) != maxRateLimiterBuckets {
++		t.Fatalf("expected a full limiter to reject new keys without evicting live state, allowed=%v retry=%v buckets=%d", allowed, retryAfter, len(full.buckets))
++	}
++	nextCleanup := full.nextCleanup
++	now = now.Add(time.Second)
++	if allowed, _ := full.Allow("another-overflow"); allowed || !full.nextCleanup.Equal(nextCleanup) {
++		t.Fatal("rejected fresh keys must wait for the scheduled sweep instead of triggering repeated full-map scans")
++	}
++}
++
+ func TestClientIPOnlyTrustsForwardedHeadersWhenConfigured(t *testing.T) {
+ 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+ 	req.RemoteAddr = "172.20.0.4:4567"
+@@ -102,3 +159,44 @@ func TestLoginEndpointReturnsTooManyRequestsAfterRepeatedFailures(t *testing.T)
+ 		}
+ 	}
+ }
++
++func TestLoginEndpointLimitsDistinctUsernamesPerClientIP(t *testing.T) {
++	server := &Server{
++		store:               &mutationStore{},
++		signer:              auth.NewSigner("test-rate-limit-secret", time.Hour),
++		cfg:                 config.Config{CORSOrigin: "http://localhost:5173"},
++		loginLimiter:        newFailureLimiter(5, time.Minute, time.Minute),
++		loginRequestLimiter: newRequestWindowLimiter(2, time.Minute),
++	}
++	for attempt, remoteIP := range []string{"127.0.0.1:1234", "127.0.0.1:1234", "127.0.0.1:1234", "192.0.2.4:1234"} {
++		username := "user-" + strconv.Itoa(attempt+1)
++		body := `{"username":"` + username + `","password":"wrong-password"}`
++		req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
++		req.RemoteAddr = remoteIP
++		rec := httptest.NewRecorder()
++		server.Routes().ServeHTTP(rec, req)
++		want := http.StatusUnauthorized
++		if attempt == 2 {
++			want = http.StatusTooManyRequests
++		}
++		if rec.Code != want {
++			t.Fatalf("attempt %d from %s: expected %d, got %d", attempt+1, remoteIP, want, rec.Code)
++		}
++	}
++	if len(server.loginLimiter.buckets) != 3 {
++		t.Fatalf("expected only admitted username buckets, got %d", len(server.loginLimiter.buckets))
++	}
++}
++
++func TestLoginRateKeyHashesNormalizedUsername(t *testing.T) {
++	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", nil)
++	req.RemoteAddr = "127.0.0.1:1234"
++	longUsername := strings.Repeat("A", maxJSONBodyBytes/2)
++	key := loginRateKey(req, longUsername, false)
++	if len(key) > 100 {
++		t.Fatalf("rate-limit key retained an unbounded username: length=%d", len(key))
++	}
++	if loginRateKey(req, " Admin ", false) != loginRateKey(req, "admin", false) {
++		t.Fatal("normalization should preserve the existing case and whitespace equivalence")
++	}
++}
+diff --git a/backend/internal/api/server.go b/backend/internal/api/server.go
+index be9ce637dd6c762e4f9c88b135cf173a5807af67..a4644f9938ea2063d15b946b3a77d84b04b483e5 100644
+--- a/backend/internal/api/server.go
++++ b/backend/internal/api/server.go
+@@ -18,13 +18,14 @@ import (
+ )
+ 
+ type Server struct {
+-	store             persistence
+-	signer            auth.Signer
+-	cfg               config.Config
+-	rateLimitersOnce  sync.Once
+-	loginLimiter      *failureLimiter
+-	credentialLimiter *failureLimiter
+-	copilotLimiter    *requestWindowLimiter
++	store               persistence
++	signer              auth.Signer
++	cfg                 config.Config
++	rateLimitersOnce    sync.Once
++	loginLimiter        *failureLimiter
++	loginRequestLimiter *requestWindowLimiter
++	credentialLimiter   *failureLimiter
++	copilotLimiter      *requestWindowLimiter
+ }
+ 
+ type ctxKey string
+@@ -114,6 +115,11 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+ }
+ 
+ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
++	if allowed, retryAfter := s.loginRequests().Allow(clientIP(r, s.cfg.TrustProxy)); !allowed {
++		writeRequestRateLimit(w, retryAfter)
++		s.recordLoginAudit(r, 0, "", "failure", "rate_limited")
++		return
++	}
+ 	var body struct {
+ 		Username string `json:"username"`
+ 		Password string `json:"password"`

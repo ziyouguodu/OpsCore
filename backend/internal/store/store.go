@@ -187,6 +187,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.UserListItem, error) {
 			u.id,
 			u.username,
 			u.display_name,
+			u.phone,
 			u.must_change_password,
 			coalesce(array_agg(r.code order by r.code) filter (where r.code is not null), '{}') as roles,
 			u.created_at,
@@ -204,7 +205,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]models.UserListItem, error) {
 	items := []models.UserListItem{}
 	for rows.Next() {
 		var item models.UserListItem
-		if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName, &item.MustChangePassword, &item.Roles, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName, &item.Phone, &item.MustChangePassword, &item.Roles, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -245,10 +246,10 @@ func (s *Store) CreateUser(ctx context.Context, item models.UserMutation) (model
 
 	var id int64
 	if err := tx.QueryRow(ctx, `
-		insert into users(username, display_name, password_hash, must_change_password)
-		values ($1,$2,$3,$4)
+		insert into users(username, display_name, password_hash, must_change_password, phone)
+		values ($1,$2,$3,$4,coalesce($5,''))
 		returning id
-	`, item.Username, item.DisplayName, passwordHash, item.MustChangePassword).Scan(&id); err != nil {
+	`, item.Username, item.DisplayName, passwordHash, item.MustChangePassword, item.Phone).Scan(&id); err != nil {
 		return models.UserListItem{}, err
 	}
 	if err := setUserRoles(ctx, tx, id, item.Roles); err != nil {
@@ -289,9 +290,9 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, item models.UserMutati
 	}
 
 	tag, err := tx.Exec(ctx, `
-		update users set username=$2, display_name=$3, must_change_password=$4, updated_at=now()
+		update users set username=$2, display_name=$3, must_change_password=$4, phone=coalesce($5,phone), updated_at=now()
 		where id=$1
-	`, id, item.Username, item.DisplayName, item.MustChangePassword)
+	`, id, item.Username, item.DisplayName, item.MustChangePassword, item.Phone)
 	if err != nil {
 		return models.UserListItem{}, err
 	}
@@ -407,6 +408,7 @@ func (s *Store) userListItem(ctx context.Context, id int64) (models.UserListItem
 			u.id,
 			u.username,
 			u.display_name,
+			u.phone,
 			u.must_change_password,
 			coalesce(array_agg(r.code order by r.code) filter (where r.code is not null), '{}') as roles,
 			u.created_at,
@@ -425,7 +427,7 @@ func (s *Store) userListItem(ctx context.Context, id int64) (models.UserListItem
 		return models.UserListItem{}, errors.New("user not found")
 	}
 	var item models.UserListItem
-	if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName, &item.MustChangePassword, &item.Roles, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := rows.Scan(&item.ID, &item.Username, &item.DisplayName, &item.Phone, &item.MustChangePassword, &item.Roles, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return models.UserListItem{}, err
 	}
 	return item, rows.Err()

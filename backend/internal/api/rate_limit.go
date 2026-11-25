@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,26 +11,30 @@ import (
 	"time"
 )
 
+const maxRateLimiterBuckets = 10_000
+
 type failureBucket struct {
 	failures     []time.Time
 	blockedUntil time.Time
 }
 
 type failureLimiter struct {
-	mu       sync.Mutex
-	buckets  map[string]failureBucket
-	max      int
-	window   time.Duration
-	blockFor time.Duration
-	now      func() time.Time
+	mu          sync.Mutex
+	buckets     map[string]failureBucket
+	max         int
+	window      time.Duration
+	blockFor    time.Duration
+	now         func() time.Time
+	nextCleanup time.Time
 }
 
 type requestWindowLimiter struct {
-	mu      sync.Mutex
-	buckets map[string][]time.Time
-	max     int
-	window  time.Duration
-	now     func() time.Time
+	mu          sync.Mutex
+	buckets     map[string][]time.Time
+	max         int
+	window      time.Duration
+	now         func() time.Time
+	nextCleanup time.Time
 }
 
 func newRequestWindowLimiter(max int, window time.Duration) *requestWindowLimiter {
@@ -40,12 +45,34 @@ func (l *requestWindowLimiter) Allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	values := recentFailures(l.buckets[key], now.Add(-l.window))
+	l.cleanup(now)
+	cutoff := now.Add(-l.window)
+	values, exists := l.buckets[key]
+	values = recentFailures(values, cutoff)
 	if len(values) >= l.max {
 		return false, max(time.Second, values[0].Add(l.window).Sub(now))
 	}
+	if !exists && len(l.buckets) >= maxRateLimiterBuckets {
+		return false, max(time.Second, l.nextCleanup.Sub(now))
+	}
 	l.buckets[key] = append(values, now)
 	return true, 0
+}
+
+func (l *requestWindowLimiter) cleanup(now time.Time) {
+	if now.Before(l.nextCleanup) {
+		return
+	}
+	cutoff := now.Add(-l.window)
+	for key, values := range l.buckets {
+		values = recentFailures(values, cutoff)
+		if len(values) == 0 {
+			delete(l.buckets, key)
+			continue
+		}
+		l.buckets[key] = values
+	}
+	l.nextCleanup = now.Add(min(l.window, time.Minute))
 }
 
 func newFailureLimiter(max int, window, blockFor time.Duration) *failureLimiter {
@@ -62,6 +89,10 @@ func (l *failureLimiter) Allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	l.cleanup(now)
+	if _, exists := l.buckets[key]; !exists && len(l.buckets) >= maxRateLimiterBuckets {
+		return false, max(time.Second, l.nextCleanup.Sub(now))
+	}
 	bucket := l.buckets[key]
 	if bucket.blockedUntil.After(now) {
 		return false, bucket.blockedUntil.Sub(now)
@@ -76,12 +107,32 @@ func (l *failureLimiter) Failure(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	l.cleanup(now)
+	if _, exists := l.buckets[key]; !exists && len(l.buckets) >= maxRateLimiterBuckets {
+		return
+	}
 	bucket := l.buckets[key]
 	bucket.failures = append(recentFailures(bucket.failures, now.Add(-l.window)), now)
 	if len(bucket.failures) >= l.max {
 		bucket.blockedUntil = now.Add(l.blockFor)
 	}
 	l.buckets[key] = bucket
+}
+
+func (l *failureLimiter) cleanup(now time.Time) {
+	if now.Before(l.nextCleanup) {
+		return
+	}
+	cutoff := now.Add(-l.window)
+	for key, bucket := range l.buckets {
+		bucket.failures = recentFailures(bucket.failures, cutoff)
+		if !bucket.blockedUntil.After(now) && len(bucket.failures) == 0 {
+			delete(l.buckets, key)
+			continue
+		}
+		l.buckets[key] = bucket
+	}
+	l.nextCleanup = now.Add(min(l.window, time.Minute))
 }
 
 func (l *failureLimiter) Success(key string) {
@@ -105,6 +156,9 @@ func (s *Server) initRateLimiters() {
 		if s.loginLimiter == nil {
 			s.loginLimiter = newFailureLimiter(5, 15*time.Minute, 15*time.Minute)
 		}
+		if s.loginRequestLimiter == nil {
+			s.loginRequestLimiter = newRequestWindowLimiter(60, time.Minute)
+		}
 		if s.credentialLimiter == nil {
 			s.credentialLimiter = newFailureLimiter(5, 10*time.Minute, 10*time.Minute)
 		}
@@ -119,6 +173,11 @@ func (s *Server) loginAttempts() *failureLimiter {
 	return s.loginLimiter
 }
 
+func (s *Server) loginRequests() *requestWindowLimiter {
+	s.initRateLimiters()
+	return s.loginRequestLimiter
+}
+
 func (s *Server) credentialAttempts() *failureLimiter {
 	s.initRateLimiters()
 	return s.credentialLimiter
@@ -130,7 +189,8 @@ func (s *Server) copilotRequests() *requestWindowLimiter {
 }
 
 func loginRateKey(r *http.Request, username string, trustProxy bool) string {
-	return strings.ToLower(strings.TrimSpace(username)) + "|" + clientIP(r, trustProxy)
+	usernameHash := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(username))))
+	return fmt.Sprintf("%x|%s", usernameHash, clientIP(r, trustProxy))
 }
 
 func credentialRateKey(r *http.Request, userID int64, trustProxy bool) string {

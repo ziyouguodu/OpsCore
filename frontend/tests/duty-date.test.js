@@ -31,6 +31,7 @@ test('builds duty assignments and upcoming rows relative to the current date', (
     { date: '2026-07-01', primary: '张伟', backup: '李娜' },
     { date: '2026-07-02', primary: '陈明', backup: '刘芳' }
   ])
+  assert.deepEqual(helpers.getUpcomingAssignments({ '2026-07-01': { primary: '近期' }, '2026-08-01': { primary: '远期' } }, today, 3), [{ date: '2026-07-01', primary: '近期' }])
 })
 
 test('marks the actual current day in the monthly calendar', () => {

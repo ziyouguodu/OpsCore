@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import PaginationBar from './PaginationBar.vue'
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
 import BulkDataTools from './BulkDataTools.vue'
 import { bulkSchemas } from '../bulk-data'
 
@@ -86,6 +87,7 @@ function closeEditorOnFocusOut(event) {
 
 <template>
   <section class="panel" role="region" aria-label="实例管理工作区">
+    <WorkspacePageHeader view="middleware" />
     <div class="section-head actions-only">
       <div class="page-actions">
         <button v-if="selectedItem" @click="$emit('export-item', selectedItem)"><span class="btn-icon">↧</span>导出</button>

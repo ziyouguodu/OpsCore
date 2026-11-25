@@ -361,3 +361,7 @@ from system_settings
 where key='copilot_config'
 on conflict do nothing;
 `
+
+const usersPhoneSchemaSQL = `
+alter table users add column phone text not null default '';
+`

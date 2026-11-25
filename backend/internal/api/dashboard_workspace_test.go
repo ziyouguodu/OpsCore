@@ -135,6 +135,31 @@ func TestDashboardWorkspaceUsesRealStatisticsQueuesAndDuty(t *testing.T) {
 	}
 }
 
+func TestDashboardDutyFallsBackToTodayMembersWithoutInventingShifts(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, dashboardTimezone)
+	state := models.DutyCenterState{Data: models.DutyCenterData{
+		Members:     []models.DutyMember{{ID: "p", Name: "当日主值", Team: "运维", Phone: "+86 138-0013-8000"}, {ID: "b", Name: "当日备值", Team: "运维", Phone: "010-12345678"}},
+		Assignments: map[string]models.DutyAssignment{"2026-10-16": {Primary: "当日主值", Backup: "当日备值"}},
+	}}
+	data := dashboardDuty(state, now)
+	if data.Primary == nil || data.Backup == nil || data.Primary.Name != "当日主值" || data.Backup.ID != "b" || data.Backup.Since != "" || data.Backup.Until != "" {
+		t.Fatalf("expected real roster fallback without fabricated shifts: %+v", data)
+	}
+	if data.Primary.Phone != "+86 138-0013-8000" || data.Backup.Phone != "010-12345678" {
+		t.Fatalf("roster fallback must retain authoritative member phones: %+v", data)
+	}
+	state.Data.CurrentPeople = []models.DutyCurrentPerson{{ID: "override", Name: "已接班人员", Role: "主值班", Since: "10:00"}}
+	data = dashboardDuty(state, now)
+	if data.Primary.ID != "override" || data.Primary.Since != "10:00" || data.Backup.Name != "当日备值" {
+		t.Fatalf("current shift must take precedence: %+v", data)
+	}
+	state.Data.Assignments["2026-10-16"] = models.DutyAssignment{Backup: "不存在的人员"}
+	data = dashboardDuty(state, now)
+	if data.Backup != nil {
+		t.Fatal("unknown roster member must not become a current backup")
+	}
+}
+
 func TestDashboardDutyEmptyDoesNotInventNamesOrShifts(t *testing.T) {
 	data := dashboardDuty(models.DutyCenterState{}, time.Now().In(dashboardTimezone))
 	if data.Primary != nil || data.Backup != nil || data.PendingCount != 0 || data.CurrentPeople == nil || data.PendingHandovers == nil || data.Handovers == nil {

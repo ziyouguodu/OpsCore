@@ -89,6 +89,24 @@ func dashboardDuty(state models.DutyCenterState, now time.Time) models.Dashboard
 			data.Backup = person
 		}
 	}
+	for _, slot := range []struct {
+		name   string
+		role   string
+		target **models.DutyCurrentPerson
+	}{
+		{data.TodayAssignment.Primary, "主值班", &data.Primary},
+		{data.TodayAssignment.Backup, "备份值班", &data.Backup},
+	} {
+		if *slot.target != nil || slot.name == "" {
+			continue
+		}
+		for _, member := range state.Data.Members {
+			if member.Name == slot.name {
+				*slot.target = &models.DutyCurrentPerson{ID: member.ID, Name: member.Name, Role: slot.role, Team: member.Team, Phone: member.Phone, Status: "已排班"}
+				break
+			}
+		}
+	}
 	for _, item := range data.Handovers {
 		if !item.Complete {
 			data.PendingHandovers = append(data.PendingHandovers, item)

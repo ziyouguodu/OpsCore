@@ -55,6 +55,7 @@ type UserListItem struct {
 	ID                 int64     `json:"id"`
 	Username           string    `json:"username"`
 	DisplayName        string    `json:"displayName"`
+	Phone              string    `json:"phone"`
 	MustChangePassword bool      `json:"mustChangePassword"`
 	Roles              []string  `json:"roles"`
 	CreatedAt          time.Time `json:"createdAt"`
@@ -71,6 +72,7 @@ type UserMutation struct {
 	ID                 int64    `json:"id"`
 	Username           string   `json:"username"`
 	DisplayName        string   `json:"displayName"`
+	Phone              *string  `json:"phone,omitempty"`
 	Password           string   `json:"password,omitempty"`
 	MustChangePassword bool     `json:"mustChangePassword"`
 	Roles              []string `json:"roles"`

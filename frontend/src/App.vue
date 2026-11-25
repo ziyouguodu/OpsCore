@@ -27,7 +27,6 @@ import { useToast } from './composables/useToast'
 import { useWorkspaceRoute } from './composables/useWorkspaceRoute'
 import { toAPITimestamp, toDateTimeLocal } from './date-time'
 import { buildListPath } from './list-query'
-import { controlPrinciple, viewMeta } from './navigation'
 import { sampleAssets, sampleIncidents, sampleMiddleware, sampleOncalls, sampleTasks, sampleUsers } from './sample-data'
 
 const demoDataEnabled = import.meta.env.VITE_ENABLE_DEMO_DATA === 'true'
@@ -87,6 +86,7 @@ const middlewareFormOpen = ref(false)
 const taskFormOpen = ref(false)
 const incidentFormOpen = ref(false)
 const userFormOpen = ref(false)
+const userSaving = ref(false)
 const copilotEditorMode = ref('closed')
 const copilotProfiles = ref([])
 const credential = reactive({ loginUrl: '', username: '', secret: '', hasSecret: false, notes: '' })
@@ -184,7 +184,7 @@ const newMiddleware = reactive({
 
 const newTask = reactive({ id: null, title: '', type: '任务', assignee: '', assigneeUserId: '', status: '待处理', dueAt: '', description: '' })
 const newIncident = reactive({ id: null, title: '', level: 'P3', status: '新建', owner: '', ownerUserId: '', business: '', startedAt: '', recoveredAt: '', summary: '' })
-const newUser = reactive({ id: null, username: '', displayName: '', password: '', mustChangePassword: true, role: 'ops_engineer' })
+const newUser = reactive({ id: null, username: '', displayName: '', phone: '', password: '', mustChangePassword: true, role: 'ops_engineer' })
 const copilotConfig = reactive({
   id: null,
   name: '',
@@ -223,10 +223,6 @@ const listMeta = reactive({
   tasks: { total: 0, pageCount: 1, counts: {} },
   incidents: { total: 0, pageCount: 1, counts: {} }
 })
-
-const activeTitle = computed(() => viewMeta[activeView.value]?.title || '首页健康总览')
-const activeBreadcrumb = computed(() => viewMeta[activeView.value]?.breadcrumb || '工作台')
-const activeSubtitle = computed(() => viewMeta[activeView.value]?.subtitle || controlPrinciple)
 
 const canManageCredentials = computed(() => {
   const roles = auth.user?.roles || auth.user?.Roles || []
@@ -443,12 +439,16 @@ async function loadIncidentPage() {
 
 async function loadAll() {
   if (!auth.token) return
+  const requestToken = auth.token
   loading.value = true
   error.value = ''
   try {
     const me = await api('/auth/me')
+    if (auth.token !== requestToken) return
     auth.user = me
+    if (!(me.roles || []).includes('super_admin')) clearCopilotState()
     if (me.mustChangePassword) {
+      clearCopilotState()
       return
     }
     const [, assets, middleware, oncalls, tasks, incidents, userDirectory] = await Promise.all([
@@ -460,6 +460,7 @@ async function loadAll() {
       api(buildListPath('incidents', incidentPager)),
       api('/user-directory')
     ])
+    if (auth.token !== requestToken || currentUserID() !== me.id) return
     state.dashboard = { ...emptyDashboard, ...dashboardWorkspace.value.statistics }
     applyPageResult('assets', assets, assetPager)
     applyPageResult('middleware', middleware, middlewarePager)
@@ -474,12 +475,18 @@ async function loadAll() {
         api('/copilot/configs'),
         api('/audit-events?limit=100')
       ])
+      if (auth.token !== requestToken || currentUserID() !== me.id) return
+      if (!canManageUsers.value) {
+        clearCopilotState()
+        return
+      }
       state.users = users.status === 'fulfilled' ? users.value : []
       credentialVerification.hasPassword = verification.status === 'fulfilled' && Boolean(verification.value.hasPassword)
       state.auditEvents = auditEvents.status === 'fulfilled' ? auditEvents.value : []
       copilotProfiles.value = modelProfiles.status === 'fulfilled' ? modelProfiles.value : []
     }
   } catch (err) {
+    if (auth.token !== requestToken) return
     if (!auth.user) {
       clearToken()
       auth.token = ''
@@ -488,7 +495,7 @@ async function loadAll() {
       error.value = `数据加载失败：${err.message}`
     }
   } finally {
-    loading.value = false
+    if (auth.token === requestToken) loading.value = false
   }
 }
 
@@ -547,9 +554,11 @@ function logout() {
   resetWorkspace()
   cancelConfirm()
   mobileNavOpen.value = false
+  clearCopilotState()
   clearToken()
   auth.token = ''
   auth.user = null
+  loading.value = false
   auth.username = ''
   auth.password = ''
   Object.assign(passwordInit, { currentPassword: '', newPassword: '', confirmPassword: '' })
@@ -1440,6 +1449,12 @@ function resetCopilotProfile(provider = copilotProviders[1]) {
   resetCopilotConnection()
 }
 
+function clearCopilotState() {
+  copilotProfiles.value = []
+  copilotEditorMode.value = 'closed'
+  resetCopilotProfile()
+}
+
 function applyCopilotConfig(config) {
   Object.assign(copilotConfig, {
     id: config.id,
@@ -1495,7 +1510,12 @@ function selectCopilotProviderByID() {
 }
 
 async function loadCopilotProfiles() {
-  copilotProfiles.value = await api('/copilot/configs')
+  const requestToken = auth.token
+  const requestUserID = currentUserID()
+  const profiles = await api('/copilot/configs')
+  if (auth.token === requestToken && currentUserID() === requestUserID && canManageUsers.value) {
+    copilotProfiles.value = profiles
+  }
 }
 
 function resetCopilotConnection() {
@@ -1607,6 +1627,7 @@ async function deleteCopilotProfile(profile) {
 }
 
 async function saveUser() {
+  if (userSaving.value) return
   error.value = ''
   if (!canManageUsers.value) {
     error.value = '当前角色无权管理用户与角色'
@@ -1620,10 +1641,12 @@ async function saveUser() {
     error.value = '用户密码至少需要 8 位'
     return
   }
+  userSaving.value = true
   try {
     const payload = {
       username: newUser.username,
       displayName: newUser.displayName,
+      phone: newUser.phone.trim(),
       password: newUser.password,
       mustChangePassword: newUser.mustChangePassword,
       roles: [newUser.role]
@@ -1640,14 +1663,24 @@ async function saveUser() {
     if (item.id === currentUserID()) {
       auth.user = { ...auth.user, username: item.username, displayName: item.displayName, roles: [...item.roles], mustChangePassword: item.mustChangePassword }
     }
-    closeUserForm()
+    resetUserForm()
+    userFormOpen.value = false
     notify(method === 'PUT' ? '用户修改已保存' : '用户已创建')
+    try {
+      state.userDirectory = await api('/user-directory')
+      await loadDashboard()
+    } catch {
+      notify('用户已保存，但关联数据刷新失败，请刷新页面查看最新联系方式', 'warning')
+    }
   } catch (err) {
     error.value = `保存用户失败：${err.message}`
+  } finally {
+    userSaving.value = false
   }
 }
 
 function openUserForm() {
+  if (userSaving.value) return
   if (!canManageUsers.value) {
     error.value = '当前角色无权管理用户与角色'
     return
@@ -1657,11 +1690,13 @@ function openUserForm() {
 }
 
 function closeUserForm() {
+  if (userSaving.value) return
   resetUserForm()
   userFormOpen.value = false
 }
 
 function editUser(user) {
+  if (userSaving.value) return
   if (!canManageUsers.value) {
     error.value = '当前角色无权管理用户与角色'
     return
@@ -1670,6 +1705,7 @@ function editUser(user) {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
+    phone: user.phone || '',
     password: '',
     mustChangePassword: user.mustChangePassword,
     role: user.roles?.[0] || 'ops_engineer'
@@ -1678,7 +1714,7 @@ function editUser(user) {
 }
 
 function resetUserForm() {
-  Object.assign(newUser, { id: null, username: '', displayName: '', password: '', mustChangePassword: true, role: 'ops_engineer' })
+  Object.assign(newUser, { id: null, username: '', displayName: '', phone: '', password: '', mustChangePassword: true, role: 'ops_engineer' })
 }
 
 async function deleteUser(user) {
@@ -1824,9 +1860,6 @@ onUnmounted(() => {
     />
     <Topbar
       v-if="hasAppAccess"
-      :breadcrumb="activeBreadcrumb"
-      :title="activeTitle"
-      :subtitle="activeSubtitle"
       :error="error"
       :loading="loading"
       :username="auth.user?.displayName || auth.user?.username || ''"
@@ -1983,7 +2016,8 @@ onUnmounted(() => {
           :active="activeView === 'oncall'"
           :can-write="canWriteOncall"
           :request-confirm="requestConfirm"
-          :users="displayUsers"
+          :users="state.users"
+          @saved="loadDashboard"
           @error="error = $event"
         />
 
@@ -2052,10 +2086,10 @@ onUnmounted(() => {
           :permission-tab="permissionTab"
           :role-cards="roleCards"
           :user-form-open="userFormOpen"
+          :user-saving="userSaving"
           @close-user-form="closeUserForm"
           @delete-user="deleteUser"
           @edit-user="editUser"
-          @navigate-tab="goToView('permissions', $event)"
           @open-user-form="openUserForm"
           @save-credential-password="saveCredentialVerificationPassword"
           @save-user="saveUser"

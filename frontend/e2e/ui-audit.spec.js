@@ -146,7 +146,7 @@ async function loginViaUI(page, username = 'admin', password = adminPassword) {
   await page.getByLabel('账号').fill(username)
   await page.getByLabel('密码').fill(password)
   await page.getByRole('button', { name: '进入控制台' }).click()
-  await expect(page.locator('.topbar h1')).toHaveText('首页健康总览')
+  await expect(page.locator('.review-dashboard .hero h1')).toBeVisible()
 }
 
 test('keeps the collapsed dashboard readable on a mobile viewport', async ({ page }) => {
@@ -164,8 +164,8 @@ test('keeps the collapsed dashboard readable on a mobile viewport', async ({ pag
   await expect(openNavigation).toBeVisible()
   await openNavigation.click()
   await expect(page.locator('.sidebar')).toBeVisible()
-  await page.locator('button.nav-child', { hasText: '任务跟踪' }).click()
-  await expect(page.locator('.topbar h1')).toHaveText('任务跟踪')
+  await page.locator('button.nav-child', { hasText: '事件管理' }).click()
+  await expect(page.locator('.workspace-page-header h1')).toHaveText('事件管理')
   await expect(page.locator('.sidebar')).toBeHidden()
 })
 
@@ -176,7 +176,7 @@ test('resets the page scroll position when switching workspaces', async ({ page 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 
-  await goNav(page, '任务跟踪', '任务跟踪')
+  await goNav(page, '事件管理', '事件管理')
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
 })
 
@@ -189,12 +189,12 @@ async function ensureSidebarExpanded(page) {
 
 async function goHome(page) {
   await page.locator('button.nav-row[title="首页仪表盘"]').click()
-  await expect(page.locator('.topbar h1')).toHaveText('首页健康总览')
+  await expect(page.locator('.review-dashboard .hero h1')).toBeVisible()
 }
 
 async function goNav(page, label, expectedTitle) {
   await page.locator('.review-sidebar button.nav', { hasText: label }).first().click()
-  await expect(page.locator('.topbar h1')).toHaveText(expectedTitle)
+  await expect(page.locator('.workspace-page-header h1')).toHaveText(expectedTitle)
 }
 
 async function openAndCancelEditor(page, buttonName, headingPattern = /新增|创建|新建|编辑/) {
@@ -279,7 +279,7 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
       await goHome(page)
       const cardButton = card.label === '当前值班' ? page.getByRole('button', { name: '当前值班', exact: true }) : page.locator('.review-dashboard .kpi', { hasText: card.label })
       await cardButton.click()
-      await expect(page.locator('.topbar h1')).toHaveText(card.title)
+      await expect(page.locator('.workspace-page-header h1')).toHaveText(card.title)
     }
 
     await goNav(page, '资产台账', '资产台账（CMDB）')
@@ -323,8 +323,8 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
 
     await goNav(page, '值班管理', '值班管理')
     await expect(page.getByRole('region', { name: '值班管理工作区' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '概览' })).toHaveClass(/active/)
-    await page.getByRole('button', { name: '排班日历' }).click()
+    await expect(page.getByRole('tab', { name: '概览' })).toHaveClass(/active/)
+    await page.getByRole('tab', { name: '排班日历' }).click()
     await openAndCancelDutyModal(page, '手动分配值班', '分配值班')
     await page.getByRole('button', { name: '手动分配值班' }).click()
     const assignmentModal = page.locator('.duty-modal').filter({ has: page.getByRole('heading', { name: '分配值班' }) }).first()
@@ -332,23 +332,24 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
     await expect(assignmentModal).toBeHidden()
     await expect.poll(async () => (await apiJSON(request, 'get', '/duty-center', token)).revision).toBeGreaterThan(created.dutySeedRevision)
     await page.reload()
-    await expect(page.locator('.topbar h1')).toHaveText('值班管理')
+    await expect(page.locator('.workspace-page-header h1')).toHaveText('值班管理')
     await expect(page.getByText(/数据版本/)).toBeVisible()
-    await page.getByRole('button', { name: '排班日历' }).click()
-    await page.getByRole('button', { name: '排班配置' }).click()
+    await page.getByRole('tab', { name: '排班日历' }).click()
+    await page.getByRole('tab', { name: '排班配置' }).click()
     await openAndCancelDutyModal(page, '新建排班', /新建排班模板|编辑排班模板/)
-    await page.getByRole('button', { name: '值班列表' }).click()
+    await page.getByRole('tab', { name: '值班列表' }).click()
     await openAndCancelDutyModal(page, '添加人员', '添加值班人员')
     await openAndCancelDutyModal(page, '团队配置', '团队配置')
     await goHome(page)
     await goNav(page, '值班管理', '值班管理')
     await expect(page.getByRole('button', { name: '添加人员' })).toBeVisible()
-    await page.getByRole('button', { name: '交接班日志' }).click()
+    await page.getByRole('tab', { name: '交接班日志' }).click()
     await openAndCancelDutyModal(page, '提交交接', '提交交接班')
-    await page.getByRole('button', { name: '升级策略' }).click()
+    await page.getByRole('tab', { name: '升级策略' }).click()
     await openAndCancelDutyModal(page, '编辑策略', '编辑升级策略')
 
-    await goNav(page, '任务跟踪', '任务跟踪')
+    await page.goto('/#tasks')
+    await expect(page.locator('.workspace-page-header h1')).toHaveText('任务跟踪')
     await expect(page.getByRole('region', { name: '任务跟踪工作区' })).toBeVisible()
     await openAndCancelEditor(page, /创建任务/, /创建任务|编辑任务/)
     await verifyListDetail(page, '隐藏任务详情')
@@ -363,7 +364,8 @@ test('clicks through OpsCore first-phase pages and core interactions', async ({ 
     await goNav(page, '用户与角色', '权限管理')
     await expect(page.getByRole('region', { name: '权限管理工作区' })).toBeVisible()
     await openAndCancelEditor(page, /新增用户/, /新增用户|编辑用户/)
-    await page.locator('.segmented-tabs').getByRole('button', { name: '菜单与资源权限' }).click()
+    await goNav(page, '菜单与资源权限', '权限管理')
+    await expect(page.locator('.review-sidebar .nav-child.active')).toHaveText('菜单与资源权限')
     await expect(page.getByRole('heading', { name: '菜单授权概览' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '资源权限矩阵' })).toBeVisible()
 

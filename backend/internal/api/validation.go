@@ -3,12 +3,16 @@ package api
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"opscore/backend/internal/domain"
 	"opscore/backend/internal/models"
 )
+
+var userPhonePattern = regexp.MustCompile(`^\+?[0-9][0-9 -]*$`)
 
 func validateUserMutation(item models.UserMutation, requirePassword bool) error {
 	if strings.TrimSpace(item.Username) == "" || strings.TrimSpace(item.DisplayName) == "" || len(item.Roles) == 0 {
@@ -19,6 +23,18 @@ func validateUserMutation(item models.UserMutation, requirePassword bool) error 
 	}
 	if item.Password != "" && len(item.Password) < 8 {
 		return errors.New("password must be at least 8 characters")
+	}
+	if item.Phone != nil && *item.Phone != "" {
+		phone := *item.Phone
+		digits := 0
+		for _, char := range phone {
+			if char >= '0' && char <= '9' {
+				digits++
+			}
+		}
+		if utf8.RuneCountInString(phone) > 40 || !userPhonePattern.MatchString(phone) || digits < 3 || digits > 20 {
+			return errors.New("phone must contain 3 to 20 digits, optional leading +, spaces or hyphens, and at most 40 characters")
+		}
 	}
 	return nil
 }

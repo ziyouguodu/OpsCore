@@ -1,4 +1,6 @@
 <script setup>
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
+
 const props = defineProps({
   canManage: { type: Boolean, default: false },
   config: { type: Object, required: true },
@@ -30,6 +32,7 @@ function profileEndpoint(profile) {
 
 <template>
   <section class="panel" role="region" aria-label="AI Copilot 配置工作区">
+    <WorkspacePageHeader view="copilot-settings" />
     <div class="section-head actions-only">
       <div class="page-actions">
         <span class="pill success">建议态 AI</span>

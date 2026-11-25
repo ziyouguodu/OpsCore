@@ -10,6 +10,7 @@ type DutyMember struct {
 	ID       string `json:"id"`
 	UserID   int64  `json:"userId"`
 	Username string `json:"username"`
+	Phone    string `json:"phone"`
 	Name     string `json:"name"`
 	Team     string `json:"team"`
 	Role     string `json:"role"`

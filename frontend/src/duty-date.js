@@ -26,8 +26,9 @@ export function createDutyAssignments(anchorDate, rotations, days = 10) {
 
 export function getUpcomingAssignments(assignments, today, limit = 3) {
   const todayKey = toISODate(today)
+  const endKey = offsetISODate(today, limit)
   return Object.entries(assignments)
-    .filter(([date]) => date > todayKey)
+    .filter(([date]) => date > todayKey && date <= endKey)
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(0, limit)
     .map(([date, value]) => ({ date, ...value }))

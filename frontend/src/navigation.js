@@ -60,7 +60,6 @@ export const menu = [
   { label: '协同与事件响应', icon: 'collab', children: [
     { id: 'incidents', label: '事件管理', icon: 'incident', enabled: true },
     { id: 'oncall', label: '值班管理', icon: 'calendar', enabled: true },
-    { id: 'tasks', label: '任务跟踪', icon: 'task', enabled: true },
     { label: 'SLA 管理', icon: 'activity', enabled: false }
   ] },
   { label: 'AI 运维', icon: 'copilot', children: [

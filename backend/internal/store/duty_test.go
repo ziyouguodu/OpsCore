@@ -71,6 +71,22 @@ func TestValidateDutyCenterAcceptsRelationalReferences(t *testing.T) {
 	}
 }
 
+func TestValidateDutyCenterRejectsSamePersonInConflictingRoles(t *testing.T) {
+	data := models.DutyCenterData{
+		Teams:   []models.DutyTeam{{Name: "运维"}},
+		Members: []models.DutyMember{{ID: "1", UserID: 1, Username: "ops", Name: "运维人员", Team: "运维"}},
+	}
+	data.Assignments = map[string]models.DutyAssignment{"2026-10-16": {Primary: "运维人员", Backup: "运维人员"}}
+	if err := ValidateDutyCenterData(data); err == nil {
+		t.Fatal("same primary and backup must be rejected")
+	}
+	data.Assignments = nil
+	data.Handovers = []models.DutyHandover{{ID: "1", From: "运维人员", To: "运维人员", Content: "交接"}}
+	if err := ValidateDutyCenterData(data); err == nil {
+		t.Fatal("self handover must be rejected")
+	}
+}
+
 func TestValidateDutyCenterRejectsMissingStableIDs(t *testing.T) {
 	data := models.DutyCenterData{
 		Teams:   []models.DutyTeam{{Name: "基础运维组"}},

@@ -95,7 +95,13 @@ func (s *mutationStore) ListAuditEvents(_ context.Context, limit int) ([]models.
 	return s.auditEvents, nil
 }
 func (s *mutationStore) ListUsers(context.Context) ([]models.UserListItem, error) {
-	return []models.UserListItem{}, nil
+	if s.userUpdated.ID != 0 {
+		return []models.UserListItem{s.userUpdated}, nil
+	}
+	if s.userCreated.ID == 0 {
+		return []models.UserListItem{}, nil
+	}
+	return []models.UserListItem{s.userCreated}, nil
 }
 func (s *mutationStore) ListUserDirectory(context.Context) ([]models.UserDirectoryItem, error) {
 	return []models.UserDirectoryItem{{ID: 7, Username: "ops.li", DisplayName: "李明"}}, nil
@@ -108,14 +114,25 @@ func (s *mutationStore) CreateUser(_ context.Context, item models.UserMutation) 
 		MustChangePassword: item.MustChangePassword,
 		Roles:              item.Roles,
 	}
+	if item.Phone != nil {
+		s.userCreated.Phone = *item.Phone
+	}
 	return s.userCreated, nil
 }
 func (s *mutationStore) UpdateUser(_ context.Context, id int64, item models.UserMutation) (models.UserListItem, error) {
 	if s.userUpdateErr != nil {
 		return models.UserListItem{}, s.userUpdateErr
 	}
+	phone := s.userUpdated.Phone
+	if s.userUpdated.ID == 0 {
+		phone = s.userCreated.Phone
+	}
+	if item.Phone != nil {
+		phone = *item.Phone
+	}
 	s.userUpdated = models.UserListItem{
 		ID:                 id,
+		Phone:              phone,
 		Username:           item.Username,
 		DisplayName:        item.DisplayName,
 		MustChangePassword: item.MustChangePassword,

@@ -18,13 +18,14 @@ import (
 )
 
 type Server struct {
-	store             persistence
-	signer            auth.Signer
-	cfg               config.Config
-	rateLimitersOnce  sync.Once
-	loginLimiter      *failureLimiter
-	credentialLimiter *failureLimiter
-	copilotLimiter    *requestWindowLimiter
+	store               persistence
+	signer              auth.Signer
+	cfg                 config.Config
+	rateLimitersOnce    sync.Once
+	loginLimiter        *failureLimiter
+	loginRequestLimiter *requestWindowLimiter
+	credentialLimiter   *failureLimiter
+	copilotLimiter      *requestWindowLimiter
 }
 
 type ctxKey string
@@ -114,6 +115,10 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if allowed, retryAfter := s.loginRequests().Allow(clientIP(r, s.cfg.TrustProxy)); !allowed {
+		writeRequestRateLimit(w, retryAfter)
+		return
+	}
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -125,7 +130,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	limitKey := loginRateKey(r, body.Username, s.cfg.TrustProxy)
 	if allowed, retryAfter := s.loginAttempts().Allow(limitKey); !allowed {
 		writeRateLimit(w, retryAfter)
-		s.recordLoginAudit(r, 0, body.Username, "failure", "rate_limited")
 		return
 	}
 	user, ok, err := s.store.Authenticate(r.Context(), body.Username, body.Password)

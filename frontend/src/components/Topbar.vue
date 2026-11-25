@@ -6,8 +6,7 @@ import SvgIcon from './SvgIcon.vue'
 import WorkspaceDialog from './WorkspaceDialog.vue'
 
 defineProps({
-  breadcrumb: { type: String, default: '工作台' }, title: { type: String, required: true },
-  subtitle: { type: String, default: '' }, error: { type: String, default: '' },
+  error: { type: String, default: '' },
   loading: { type: Boolean, default: false }, username: { type: String, default: '' },
   authenticated: { type: Boolean, default: false }, theme: { type: String, default: 'deepsea' },
   mobileOpen: { type: Boolean, default: false }, preview: { type: Object, default: null }
@@ -44,7 +43,6 @@ function openResult(group) {
   <header class="topbar review-topbar">
     <button class="mobile-toggle" type="button" aria-label="打开导航" :aria-expanded="mobileOpen" aria-controls="workspace-navigation" @click="emit('open-navigation')"><SvgIcon class="icon" name="menu" /></button>
     <div class="brand"><img src="/opscore-ai-ops-logo-transparent.png" alt="OpsCore logo" /><div><strong>OpsCore</strong><small>智能运维中枢指挥平台</small></div></div>
-    <div class="topbar-context" :class="{ 'dashboard-context': title === '首页健康总览' }"><span class="breadcrumb">{{ breadcrumb }}</span><h1>{{ title }}</h1><p>{{ subtitle }}</p></div>
     <form class="search" role="search" @submit.prevent="search"><span class="muted">⌕</span><input v-model="keyword" aria-label="全局搜索" placeholder="搜索资产、事件、任务…" /><kbd>Enter</kbd></form>
     <div v-if="authenticated" class="top-actions">
       <span v-if="loading" class="muted">加载中...</span>

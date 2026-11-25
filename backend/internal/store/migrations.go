@@ -20,6 +20,7 @@ var schemaMigrations = []schemaMigration{
 	{version: "007_relational_duty_center", sql: relationalDutyCenterSchemaSQL},
 	{version: "008_trigram_search_indexes", sql: trigramSearchIndexesSchemaSQL},
 	{version: "009_copilot_model_configs", sql: copilotModelProfilesSchemaSQL},
+	{version: "010_users_phone", sql: usersPhoneSchemaSQL},
 }
 
 func (s *Store) runMigrations(ctx context.Context) error {

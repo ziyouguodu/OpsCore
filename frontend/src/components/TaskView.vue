@@ -1,5 +1,6 @@
 <script setup>
 import PaginationBar from './PaginationBar.vue'
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
 import { formatDateTime } from '../date-time'
 import { taskStatusOptions } from '../workflow-status'
 
@@ -41,6 +42,7 @@ function closeEditorOnFocusOut(event) {
 
 <template>
   <section class="panel" role="region" aria-label="任务跟踪工作区">
+    <WorkspacePageHeader view="tasks" />
     <div class="section-head actions-only">
       <div class="page-actions">
         <span class="pill">未关闭 {{ activeTaskCount }}</span>

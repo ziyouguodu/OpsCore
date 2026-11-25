@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "OpsCore 前后端交互链路",
+    "locale": "zh-CN",
+    "output": ".archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:ziyouguodu/OpsCore.git",
+      "link_mode": "local-only",
+      "revision": "cb1d3bab1f203c8976a4d539dc242e95d19e5b11"
+    }
+  },
+  "participants": [
+    { "id": "ops-user", "type": "external", "label": "运维用户", "sublabel": "浏览器" },
+    {
+      "id": "vue-web", "type": "frontend", "label": "Vue 前端", "sublabel": "api.js · Bearer",
+      "sources": [
+        { "path": "frontend/src/api.js", "line": 31, "end_line": 59, "label": "api() 与 login()" },
+        { "path": "frontend/src/composables/useCopilotChat.js", "line": 46, "label": "调用 /copilot/chat" }
+      ]
+    },
+    {
+      "id": "nginx-proxy", "type": "cloud", "label": "Nginx", "sublabel": "静态资源 + /api 代理",
+      "sources": [
+        { "path": "frontend/nginx.conf", "line": 13, "end_line": 20, "label": "proxy_pass backend:8080" }
+      ]
+    },
+    {
+      "id": "api-guard", "type": "security", "label": "API 中间件", "sublabel": "CORS · 审计 · JWT/RBAC",
+      "sources": [
+        { "path": "backend/internal/api/server.go", "line": 662, "end_line": 698, "label": "requireAuth / requirePermission" },
+        { "path": "backend/internal/api/audit.go", "line": 30, "end_line": 48, "label": "auditRequests" },
+        { "path": "backend/internal/api/server.go", "line": 103, "label": "cors(auditRequests(mux))" }
+      ]
+    },
+    {
+      "id": "go-handler", "type": "backend", "label": "业务 Handler", "sublabel": "Go REST API",
+      "sources": [
+        { "path": "backend/internal/api/server.go", "line": 114, "end_line": 144, "label": "login" },
+        { "path": "backend/internal/api/work_items.go", "line": 113, "end_line": 148, "label": "taskStatus" },
+        { "path": "backend/internal/api/copilot_chat.go", "line": 46, "end_line": 83, "label": "copilotChat" }
+      ]
+    },
+    {
+      "id": "pg-store", "type": "database", "label": "PostgreSQL", "sublabel": "pgx · 业务与审计",
+      "sources": [
+        { "path": "backend/internal/store/store.go", "line": 92, "end_line": 122, "label": "Authenticate / GetUser" },
+        { "path": "backend/internal/store/work_items.go", "line": 85, "end_line": 102, "label": "UpdateTaskStatus 行锁" }
+      ]
+    },
+    {
+      "id": "llm-provider", "type": "external", "label": "模型服务", "sublabel": "本地 / 托管 LLM",
+      "sources": [
+        { "path": "backend/internal/api/copilot_chat.go", "line": 130, "end_line": 182, "label": "callCopilotModel" }
+      ]
+    }
+  ],
+  "segments": [
+    { "from": 155, "to": 380, "label": "登录" },
+    { "from": 395, "to": 705, "label": "业务写操作（任务状态流转）" },
+    { "from": 720, "to": 1030, "label": "AI Copilot 问答" }
+  ],
+  "messages": [
+    { "id": "login-input", "from": "ops-user", "to": "vue-web", "y": 170, "label": "输入账号密码" },
+    { "id": "login-post", "from": "vue-web", "to": "nginx-proxy", "y": 198, "label": "POST /api/auth/login", "variant": "emphasis" },
+    { "id": "login-proxy", "from": "nginx-proxy", "to": "api-guard", "y": 226, "label": "转发 + X-Real-IP" },
+    { "id": "login-route", "from": "api-guard", "to": "go-handler", "y": 254, "label": "免鉴权路由，失败次数限流", "variant": "security" },
+    { "id": "login-auth", "from": "go-handler", "to": "pg-store", "y": 282, "label": "Authenticate 校验哈希" },
+    { "id": "login-user", "from": "pg-store", "to": "go-handler", "y": 310, "label": "用户 + 角色", "variant": "return" },
+    { "id": "login-token", "from": "go-handler", "to": "vue-web", "y": 338, "label": "JWT + user（写登录审计）", "variant": "return" },
+    { "id": "login-session", "from": "vue-web", "to": "ops-user", "y": 366, "label": "Token 存 sessionStorage，首登改密门禁", "variant": "return" },
+
+    { "id": "task-click", "from": "ops-user", "to": "vue-web", "y": 410, "label": "推进任务状态" },
+    { "id": "task-patch", "from": "vue-web", "to": "nginx-proxy", "y": 438, "label": "PATCH /api/tasks/{id} Bearer", "variant": "emphasis" },
+    { "id": "task-proxy", "from": "nginx-proxy", "to": "api-guard", "y": 466, "label": "转发" },
+    { "id": "task-verify", "from": "api-guard", "to": "pg-store", "y": 494, "label": "验 JWT 后 GetUser 读当前角色", "variant": "security" },
+    { "id": "task-roles", "from": "pg-store", "to": "api-guard", "y": 522, "label": "角色 / mustChangePassword", "variant": "return" },
+    { "id": "task-rbac", "from": "api-guard", "to": "go-handler", "y": 550, "label": "RBAC task.write 通过", "variant": "security" },
+    { "id": "task-lock", "from": "go-handler", "to": "pg-store", "y": 578, "label": "FOR UPDATE 行锁内再校验流转", "variant": "emphasis" },
+    { "id": "task-commit", "from": "pg-store", "to": "go-handler", "y": 606, "label": "提交 / 409 冲突", "variant": "return" },
+    { "id": "task-response", "from": "go-handler", "to": "vue-web", "y": 634, "label": "200 JSON", "variant": "return" },
+    { "id": "task-audit", "from": "api-guard", "to": "pg-store", "y": 662, "label": "响应后 RecordAudit", "variant": "dashed" },
+    { "id": "task-toast", "from": "vue-web", "to": "ops-user", "y": 690, "label": "Toast + 刷新列表", "variant": "return" },
+
+    { "id": "chat-ask", "from": "ops-user", "to": "vue-web", "y": 735, "label": "Copilot 提问" },
+    { "id": "chat-post", "from": "vue-web", "to": "nginx-proxy", "y": 763, "label": "POST /api/copilot/chat", "variant": "emphasis" },
+    { "id": "chat-proxy", "from": "nginx-proxy", "to": "api-guard", "y": 791, "label": "转发" },
+    { "id": "chat-auth", "from": "api-guard", "to": "go-handler", "y": 819, "label": "JWT + 当前角色，20 次/分钟", "variant": "security" },
+    { "id": "chat-context", "from": "go-handler", "to": "pg-store", "y": 847, "label": "启用配置、托管 Key、按权限取上下文" },
+    { "id": "chat-context-rows", "from": "pg-store", "to": "go-handler", "y": 875, "label": "配置 + 授权上下文（无凭据）", "variant": "return" },
+    { "id": "chat-model", "from": "go-handler", "to": "llm-provider", "y": 903, "label": "SSRF 校验后代理调用，45s 超时", "variant": "emphasis" },
+    { "id": "chat-answer", "from": "llm-provider", "to": "go-handler", "y": 931, "label": "模型回答", "variant": "return" },
+    { "id": "chat-response", "from": "go-handler", "to": "vue-web", "y": 959, "label": "answer（错误已清洗密钥）", "variant": "return" },
+    { "id": "chat-audit", "from": "api-guard", "to": "pg-store", "y": 987, "label": "copilot.chat 审计", "variant": "dashed" },
+    { "id": "chat-render", "from": "vue-web", "to": "ops-user", "y": 1015, "label": "安全文本节点渲染 Markdown", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "vue-web", "from": 165, "to": 372, "type": "frontend" },
+    { "participant": "go-handler", "from": 249, "to": 344, "type": "backend" },
+    { "participant": "pg-store", "from": 277, "to": 316, "type": "database" },
+    { "participant": "vue-web", "from": 405, "to": 696, "type": "frontend" },
+    { "participant": "api-guard", "from": 461, "to": 668, "type": "security" },
+    { "participant": "go-handler", "from": 545, "to": 640, "type": "backend" },
+    { "participant": "pg-store", "from": 489, "to": 528, "type": "database" },
+    { "participant": "pg-store", "from": 573, "to": 612, "type": "database" },
+    { "participant": "vue-web", "from": 730, "to": 1021, "type": "frontend" },
+    { "participant": "go-handler", "from": 814, "to": 965, "type": "backend" },
+    { "participant": "pg-store", "from": 842, "to": 881, "type": "database" },
+    { "participant": "llm-provider", "from": 898, "to": 937, "type": "external" }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "鉴权与授权",
+      "items": [
+        "每次请求都按 JWT 中的用户 ID 回表读取当前角色，角色调整立即生效",
+        "mustChangePassword 用户只能访问 /auth/me 和 /auth/password",
+        "任一已认证请求返回 401 时前端清理 Token 并回到登录页"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "审计边界",
+      "items": [
+        "auditRequests 在响应后记录所有非 GET 请求和凭据查看",
+        "登录不走通用审计，由 login 自行记录成功、失败和限流",
+        "Copilot 问答审计在服务端强制执行，前端不能关闭"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Copilot 边界",
+      "items": [
+        "上下文同时受配置开关和当前角色权限约束，不含资产或实例凭据",
+        "托管 provider 拒绝 loopback、私网和元数据地址",
+        "上游非 2xx 错误经 API Key 清洗和长度截断后返回 422"
+      ]
+    }
+  ]
+}

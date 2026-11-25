@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "sequence",
+  "quality": "showcase",
+  "startedAt": "2026-10-08T09:29:56.685Z",
+  "specification": {
+    "path": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/candidate.json",
+    "sha256": "83dd59a823ad4b4459fce408d80f12c0b0b9571d63cbd3a9b276d6d81b5c7f2a",
+    "bytes": 9069
+  },
+  "artifact": {
+    "path": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+    "sha256": "e439f9c3b02f4546fddbd9f95cc59b5264df58f468a3956fb2fe17b4083aeed7",
+    "bytes": 778656
+  },
+  "stages": {
+    "validate": {
+      "status": "not-run",
+      "execution": "embedded-in-deliver"
+    },
+    "deliver": {
+      "status": "fail",
+      "exitCode": 0,
+      "durationMs": 340,
+      "command": [
+        "/Users/mac/.nvm/versions/node/v24.16.0/bin/node",
+        "/Users/mac/.god-agent/skills/archify/bin/archify.mjs",
+        "deliver",
+        "sequence",
+        "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/candidate.json",
+        "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/mac/Desktop/work/OpsCore",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "fe009490-46bd-481b-8f8d-9a5350132297",
+        "ok": true,
+        "command": "deliver",
+        "type": "sequence",
+        "input": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/candidate.json",
+        "output": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+        "specification": {
+          "sha256": "83dd59a823ad4b4459fce408d80f12c0b0b9571d63cbd3a9b276d6d81b5c7f2a",
+          "bytes": 9069
+        },
+        "artifact": {
+          "sha256": "e439f9c3b02f4546fddbd9f95cc59b5264df58f468a3956fb2fe17b4083aeed7",
+          "bytes": 778656
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 1,
+          "compositionIssues": [
+            {
+              "severity": "warning",
+              "code": "composition/viewport-height",
+              "readerFit": null,
+              "viewBoxWidth": 1060,
+              "viewBoxHeight": 1140,
+              "viewportWidth": 1440,
+              "viewportHeight": 900,
+              "ratio": 0.93,
+              "wideRatio": 1.55,
+              "svgWidthPx": 1346,
+              "svgHeightPx": 1448,
+              "fixedChromePx": 126,
+              "pageHeightPx": 1574,
+              "overflowPx": 674,
+              "detail": "[composition/viewport-height] Preserve every node, relationship, and label. This 1060x1140 canvas (ratio 0.93) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1448px tall at the full 1346px width and the page reaches 1574px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 683 at this width, or spread content sideways so the width is at least 1767 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+            }
+          ]
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "git@github.com:ziyouguodu/OpsCore",
+          "revision": "cb1d3bab1f203c8976a4d539dc242e95d19e5b11",
+          "references": 12,
+          "linkMode": "local-only"
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "composition/viewport-height",
+      "severity": "error",
+      "message": "Showcase delivery reported composition/viewport-height; zero warnings are required.",
+      "subject": {
+        "stage": "deliver",
+        "check": "composition"
+      },
+      "evidence": {
+        "reportedSeverity": "warning",
+        "readerFit": null,
+        "viewBoxWidth": 1060,
+        "viewBoxHeight": 1140,
+        "viewportWidth": 1440,
+        "viewportHeight": 900,
+        "ratio": 0.93,
+        "wideRatio": 1.55,
+        "svgWidthPx": 1346,
+        "svgHeightPx": 1448,
+        "fixedChromePx": 126,
+        "pageHeightPx": 1574,
+        "overflowPx": 674
+      },
+      "supportedFixes": [
+        "Preserve every node, relationship, and label. This 1060x1140 canvas (ratio 0.93) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1448px tall at the full 1346px width and the page reaches 1574px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 683 at this width, or spread content sideways so the width is at least 1767 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.finalize.json",
+    "summaryReceipt": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.finalize-summary.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "deliver",
+  "finishedAt": "2026-10-08T09:29:57.091Z",
+  "durationMs": 405,
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  }
+}

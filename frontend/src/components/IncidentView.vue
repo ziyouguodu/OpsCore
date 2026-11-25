@@ -1,5 +1,6 @@
 <script setup>
 import PaginationBar from './PaginationBar.vue'
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
 import { formatDateTime } from '../date-time'
 import { incidentStatusOptions } from '../workflow-status'
 
@@ -45,6 +46,7 @@ function severityLabel(level) {
 
 <template>
   <section class="panel" role="region" aria-label="事件管理工作区">
+    <WorkspacePageHeader view="incidents" />
     <div class="section-head actions-only">
       <div class="page-actions">
         <span class="pill danger">活跃事件 {{ activeIncidentCount }}</span>

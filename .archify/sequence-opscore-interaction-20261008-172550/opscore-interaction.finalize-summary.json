@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "sequence",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/candidate.json",
+    "sha256": "83dd59a823ad4b4459fce408d80f12c0b0b9571d63cbd3a9b276d6d81b5c7f2a",
+    "bytes": 9069
+  },
+  "artifact": {
+    "path": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+    "sha256": "e439f9c3b02f4546fddbd9f95cc59b5264df58f468a3956fb2fe17b4083aeed7",
+    "bytes": 778656
+  },
+  "gates": {
+    "validate": "not-run",
+    "deliver": "fail",
+    "check": "not-run",
+    "browser-check": "not-run"
+  },
+  "failedStage": "deliver",
+  "diagnostics": [
+    {
+      "code": "composition/viewport-height",
+      "severity": "error",
+      "message": "Showcase delivery reported composition/viewport-height; zero warnings are required.",
+      "subject": {
+        "stage": "deliver",
+        "check": "composition"
+      },
+      "evidence": {
+        "reportedSeverity": "warning",
+        "readerFit": null,
+        "viewBoxWidth": 1060,
+        "viewBoxHeight": 1140,
+        "viewportWidth": 1440,
+        "viewportHeight": 900,
+        "ratio": 0.93,
+        "wideRatio": 1.55,
+        "svgWidthPx": 1346,
+        "svgHeightPx": 1448,
+        "fixedChromePx": 126,
+        "pageHeightPx": 1574,
+        "overflowPx": 674
+      },
+      "supportedFixes": [
+        "Preserve every node, relationship, and label. This 1060x1140 canvas (ratio 0.93) declares no intrinsic-height fit and is below the 1.55 wide ratio, so the desktop Reader can neither narrow it nor accept vertical scroll: it renders 1448px tall at the full 1346px width and the page reaches 1574px before cards against 900px, a certain visual-check failure. Either compact vertical spacing so meta.viewBox height is at most 683 at this width, or spread content sideways so the width is at least 1767 at this height; for architecture, omitting meta.viewBox lets the renderer size the canvas and declare the fit."
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.finalize.json",
+    "summaryReceipt": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.finalize-summary.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 405
+}

@@ -13,6 +13,24 @@ test('round trips CSV values containing commas, quotes and line breaks', () => {
   assert.equal(parsed[0].deploymentInfo, records[0].deploymentInfo)
 })
 
+test('neutralizes spreadsheet formulas while preserving ordinary negative numbers', () => {
+  const record = {
+    assetNo: '=HYPERLINK("https://example.invalid","open")',
+    type: ' +SUM(1,2)',
+    vendor: '-1+HYPERLINK("https://example.invalid","open")',
+    cpuArch: '\t@SUM(1,2)',
+    sn: '-12.5',
+    location: '+12.5'
+  }
+  const exported = parseCsv(toCsv([record], bulkSchemas.assets), bulkSchemas.assets)[0]
+  assert.equal(exported.assetNo, "'=HYPERLINK(\"https://example.invalid\",\"open\")")
+  assert.equal(exported.type, "' +SUM(1,2)")
+  assert.equal(exported.vendor, "'-1+HYPERLINK(\"https://example.invalid\",\"open\")")
+  assert.equal(exported.cpuArch, "'\t@SUM(1,2)")
+  assert.equal(exported.sn, '-12.5')
+  assert.equal(exported.location, '+12.5')
+})
+
 test('accepts field names as CSV headers and rejects mismatched templates', () => {
   assert.deepEqual(parseCsv('name,endpoint\nredis-main,192.0.2.1:6379', bulkSchemas.middleware), [
     { __row: 2, name: 'redis-main', endpoint: '192.0.2.1:6379' }

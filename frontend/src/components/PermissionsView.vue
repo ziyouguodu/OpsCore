@@ -1,7 +1,8 @@
 <script setup>
 import SvgIcon from './SvgIcon.vue'
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
 
-defineProps({
+const props = defineProps({
   canManage: { type: Boolean, default: false },
   credentialVerification: { type: Object, required: true },
   currentUserId: { type: [Number, String], default: 0 },
@@ -12,6 +13,7 @@ defineProps({
   permissionRows: { type: Array, default: () => [] },
   permissionTab: { type: String, default: 'users' },
   roleCards: { type: Array, default: () => [] },
+  userSaving: { type: Boolean, default: false },
   userFormOpen: { type: Boolean, default: false }
 })
 
@@ -19,13 +21,13 @@ const emit = defineEmits([
   'close-user-form',
   'delete-user',
   'edit-user',
-  'navigate-tab',
   'open-user-form',
   'save-credential-password',
   'save-user'
 ])
 
 function closeEditorOnFocusOut(event) {
+  if (props.userSaving) return
   const nextTarget = event.relatedTarget
   if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
     emit('close-user-form')
@@ -35,15 +37,12 @@ function closeEditorOnFocusOut(event) {
 
 <template>
   <section class="panel" role="region" aria-label="权限管理工作区">
+    <WorkspacePageHeader view="permissions" />
     <div class="section-head actions-only">
       <div class="page-actions">
         <span class="pill">账号密码登录</span>
         <button v-if="canManage && permissionTab === 'users'" class="primary" @click="$emit('open-user-form')"><span class="btn-icon">＋</span>新增用户</button>
       </div>
-    </div>
-    <div class="segmented-tabs">
-      <button :class="{ active: permissionTab === 'users' }" @click="$emit('navigate-tab', 'users')">用户与角色</button>
-      <button :class="{ active: permissionTab === 'resources' }" @click="$emit('navigate-tab', 'resources')">菜单与资源权限</button>
     </div>
 
     <template v-if="permissionTab === 'users'">
@@ -63,23 +62,25 @@ function closeEditorOnFocusOut(event) {
           <h3>账号列表</h3>
           <section v-if="userFormOpen" class="editor-panel" tabindex="-1" @focusout="closeEditorOnFocusOut">
             <h3>{{ newUser.id ? '编辑用户' : '新增用户' }}</h3>
-            <div class="form-grid user-form">
+            <fieldset class="form-grid user-form" :disabled="userSaving">
               <input v-model="newUser.username" aria-label="登录账号" placeholder="登录账号" />
               <input v-model="newUser.displayName" aria-label="姓名或显示名" placeholder="姓名 / 显示名" />
+              <label>联系电话（可选）<input v-model="newUser.phone" aria-label="联系电话" type="tel" maxlength="40" autocomplete="tel" placeholder="手机号或带国际区号的联系电话" /></label>
               <input v-model="newUser.password" aria-label="用户密码" type="password" :placeholder="newUser.id ? '新密码（留空不修改）' : '初始密码'" />
               <select v-model="newUser.role" aria-label="用户角色" :disabled="newUser.id === currentUserId && newUser.role === 'super_admin' && displayUsers.filter((user) => user.roles?.includes('super_admin')).length <= 1"><option value="ops_engineer">运维工程师</option><option value="super_admin">超级管理员</option></select>
               <label class="inline-check"><input v-model="newUser.mustChangePassword" type="checkbox" />首次登录修改密码</label>
               <button class="primary" @click="$emit('save-user')">{{ newUser.id ? '保存用户' : '新增用户' }}</button>
               <button @click="$emit('close-user-form')">取消</button>
-            </div>
+            </fieldset>
           </section>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>密码状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>账号</th><th>姓名</th><th>联系电话</th><th>角色</th><th>密码状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="user in displayUsers" :key="user.id">
                   <td>{{ user.username }}</td>
                   <td>{{ user.displayName }}</td>
+                  <td>{{ user.phone || '未配置' }}</td>
                   <td><span v-for="role in user.roles" :key="role" class="pill">{{ role === 'super_admin' ? '超级管理员' : '运维工程师' }}</span></td>
                   <td><span :class="['pill', user.mustChangePassword ? 'danger' : 'success']">{{ user.mustChangePassword ? '需初始化' : '正常' }}</span></td>
                   <td class="row-actions"><button class="link" :disabled="isSample(user)" @click="$emit('edit-user', user)">编辑</button><button class="link danger-text" :disabled="user.id === currentUserId || isSample(user)" @click="$emit('delete-user', user)">删除</button></td>

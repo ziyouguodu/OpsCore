@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import WorkspacePageHeader from './WorkspacePageHeader.vue'
 
 const props = defineProps({
   canManage: { type: Boolean, default: false },
@@ -33,6 +34,7 @@ function formatTime(value) {
 
 <template>
   <section class="panel audit-workspace" role="region" aria-label="操作审计工作区">
+    <WorkspacePageHeader view="audit" />
     <div v-if="!canManage" class="empty-state">
       <strong>当前角色无权查看操作审计</strong>
       <span>操作审计仅对超级管理员开放。</span>

@@ -141,6 +141,20 @@ func TestCopilotConfigRejectsHostedPrivateEndpoint(t *testing.T) {
 	}
 }
 
+func TestCopilotHostedEndpointsRequireHTTPS(t *testing.T) {
+	if err := validateCopilotConfig(models.CopilotConfig{
+		Provider: "openai",
+		Endpoint: "http://api.example.com/v1",
+		Model:    "gpt-4.1",
+		APIKey:   "test-key",
+	}); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("expected hosted HTTP endpoint to be rejected, got %v", err)
+	}
+	if err := validateCopilotEndpointAccess("http://127.0.0.1:11434", "local"); err != nil {
+		t.Fatalf("expected local model HTTP endpoint to remain allowed, got %v", err)
+	}
+}
+
 func TestCopilotConfigRejectsInvalidGenerationBounds(t *testing.T) {
 	for _, item := range []models.CopilotConfig{
 		{Provider: "openai", Endpoint: "https://api.openai.com/v1", Model: "gpt-4.1", Temperature: "2.5"},
@@ -174,6 +188,15 @@ func TestCopilotRedirectPolicyRejectsCrossHostRedirect(t *testing.T) {
 	err := copilotRedirectPolicy("compatible")(redirect, []*http.Request{original})
 	if err == nil || !strings.Contains(err.Error(), "cross-host") {
 		t.Fatalf("expected cross-host model redirect to be rejected, got %v", err)
+	}
+}
+
+func TestCopilotRedirectPolicyRejectsHostedHTTPSDowngrade(t *testing.T) {
+	original := httptest.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", nil)
+	redirect := httptest.NewRequest(http.MethodGet, "http://api.example.com/redirect", nil)
+	err := copilotRedirectPolicy("compatible")(redirect, []*http.Request{original})
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("expected hosted HTTPS downgrade to be rejected, got %v", err)
 	}
 }
 

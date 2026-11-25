@@ -15,7 +15,11 @@ export const bulkSchemas = {
 
 function csvCell(value) {
   const text = String(value ?? '')
-  return `"${text.replaceAll('"', '""')}"`
+  const leading = text.trimStart()
+  const number = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/iu.test(leading)
+  const formula = /^[=@]/u.test(leading) || ((leading.startsWith('+') || leading.startsWith('-')) && !number)
+  const safeText = formula ? `'${text}` : text
+  return `"${safeText.replaceAll('"', '""')}"`
 }
 
 export function toCsv(items, schema, { template = false } = {}) {

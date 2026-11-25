@@ -245,7 +245,12 @@ func validateCopilotEndpointAccess(base string, provider string) error {
 		return errors.New("loopback endpoints are only allowed for local model provider")
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		return validateCopilotAddress(provider, addr)
+		if err := validateCopilotAddress(provider, addr); err != nil {
+			return err
+		}
+	}
+	if provider != "local" && !strings.EqualFold(parsed.Scheme, "https") {
+		return errors.New("hosted provider endpoints must use https")
 	}
 	return nil
 }

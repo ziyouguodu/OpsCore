@@ -17,14 +17,14 @@ async function login(page) {
   await page.getByLabel('账号').fill('admin')
   await page.getByLabel('密码').fill(adminPassword)
   await page.getByRole('button', { name: '进入控制台' }).click()
-  await expect(page.locator('.topbar h1')).toHaveText('首页健康总览')
+  await expect(page.locator('.review-dashboard .hero h1')).toBeVisible()
 }
 
 async function goNav(page, label, title) {
   const expand = page.getByLabel('展开菜单')
   if (await expand.isVisible().catch(() => false)) await expand.click()
   await page.locator('button.nav-child', { hasText: label }).first().click()
-  await expect(page.locator('.topbar h1')).toHaveText(title)
+  await expect(page.locator('.workspace-page-header h1')).toHaveText(title)
 }
 
 async function readDownload(download) {

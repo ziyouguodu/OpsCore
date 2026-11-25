@@ -40,6 +40,9 @@ func (s *Store) GetDutyCenter(ctx context.Context) (models.DutyCenterState, erro
 	if state.Data.Assignments == nil {
 		state.Data.Assignments = map[string]models.DutyAssignment{}
 	}
+	if err := resolveDutyPhones(ctx, s.pool, &state.Data); err != nil {
+		return models.DutyCenterState{}, err
+	}
 	return state, nil
 }
 
@@ -50,15 +53,18 @@ func (s *Store) SaveDutyCenter(ctx context.Context, mutation models.DutyCenterMu
 	if err := s.validateDutyMemberUsers(ctx, mutation.Data.Members); err != nil {
 		return models.DutyCenterState{}, err
 	}
-	raw, err := json.Marshal(mutation.Data)
-	if err != nil {
-		return models.DutyCenterState{}, err
-	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return models.DutyCenterState{}, err
 	}
 	defer tx.Rollback(ctx)
+	if err := resolveDutyPhones(ctx, tx, &mutation.Data); err != nil {
+		return models.DutyCenterState{}, err
+	}
+	raw, err := json.Marshal(mutation.Data)
+	if err != nil {
+		return models.DutyCenterState{}, err
+	}
 
 	var saved models.DutyCenterState
 	var savedRaw []byte
@@ -341,6 +347,47 @@ func (s *Store) readDutyRelations(ctx context.Context) (models.DutyCenterData, e
 	return data, nil
 }
 
+type dutyPhoneQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func resolveDutyPhones(ctx context.Context, querier dutyPhoneQuerier, data *models.DutyCenterData) error {
+	phones := make(map[int64]string, len(data.Members))
+	if len(data.Members) > 0 {
+		userIDs := make([]int64, 0, len(data.Members))
+		for _, member := range data.Members {
+			userIDs = append(userIDs, member.UserID)
+		}
+		rows, err := querier.Query(ctx, `select id, phone from users where id = any($1) order by id for share`, userIDs)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			var phone string
+			if err := rows.Scan(&id, &phone); err != nil {
+				return err
+			}
+			phones[id] = phone
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	phoneByName := make(map[string]string, len(data.Members))
+	for i := range data.Members {
+		member := &data.Members[i]
+		member.Phone = phones[member.UserID]
+		phoneByName[member.Name] = member.Phone
+	}
+	for i := range data.CurrentPeople {
+		person := &data.CurrentPeople[i]
+		person.Phone = phoneByName[person.Name]
+	}
+	return nil
+}
+
 func (s *Store) validateDutyMemberUsers(ctx context.Context, members []models.DutyMember) error {
 	if len(members) == 0 {
 		return nil
@@ -437,6 +484,9 @@ func ValidateDutyCenterData(data models.DutyCenterData) error {
 		if _, err := time.Parse("2006-01-02", date); err != nil {
 			return fmt.Errorf("invalid duty assignment date %q", date)
 		}
+		if assignment.Primary != "" && assignment.Primary == assignment.Backup {
+			return errors.New("primary and backup duty members must be different")
+		}
 		for _, name := range []string{assignment.Primary, assignment.Backup} {
 			if name != "" {
 				if _, exists := members[name]; !exists {
@@ -467,6 +517,9 @@ func ValidateDutyCenterData(data models.DutyCenterData) error {
 		}
 		if _, exists := members[handover.To]; !exists {
 			return fmt.Errorf("handover target %q is not in the roster", handover.To)
+		}
+		if handover.From == handover.To {
+			return errors.New("duty handover source and target must be different")
 		}
 		if strings.TrimSpace(handover.Content) == "" {
 			return errors.New("duty handover content is required")

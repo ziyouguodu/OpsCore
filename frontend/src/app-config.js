@@ -17,7 +17,7 @@ export const menuPermissionRows = [
   { menu: '资产台账（CMDB）', stage: '一期启用', superAdmin: '全部', opsEngineer: '查看 / 修改', note: '登录信息需额外校验权限' },
   { menu: '中间件与数据库', stage: '一期启用', superAdmin: '全部', opsEngineer: '查看 / 修改', note: '实例账号密码默认不可见' },
   { menu: '值班管理', stage: '一期启用', superAdmin: '全部', opsEngineer: '查看', note: '新增、编辑、删除仅超级管理员' },
-  { menu: '任务跟踪', stage: '一期启用', superAdmin: '全部', opsEngineer: '处理', note: '支持状态流转与闭环跟进' },
+  { menu: '任务跟踪（非侧栏入口）', stage: '页面保留', superAdmin: '全部', opsEngineer: '处理', note: '已从侧栏菜单下线，页面与接口保留，仅可通过地址或全局搜索进入' },
   { menu: '事件管理', stage: '一期启用', superAdmin: '全部', opsEngineer: '跟进', note: '支持 P1-P4 与恢复关闭流转' },
   { menu: 'SSO/LDAP、审批审计、SRE、可观测性', stage: '灰度占位', superAdmin: '灰度', opsEngineer: '-', note: '只展示入口，不开放业务操作' }
 ]

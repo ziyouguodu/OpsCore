@@ -56,7 +56,17 @@ func TestCopilotModelProfilesMigrationDefinesLifecycleConstraints(t *testing.T) 
 			t.Fatalf("copilot model profiles migration is missing %q", fragment)
 		}
 	}
-	if schemaMigrations[len(schemaMigrations)-1].version != "009_copilot_model_configs" {
-		t.Fatalf("expected latest migration to be 009_copilot_model_configs, got %s", schemaMigrations[len(schemaMigrations)-1].version)
+	if schemaMigrations[len(schemaMigrations)-2].version != "009_copilot_model_configs" {
+		t.Fatal("expected copilot migration immediately before users phone")
+	}
+}
+
+func TestUsersPhoneMigrationAddsEmptyDefaultWithoutSnapshotBackfill(t *testing.T) {
+	migration := schemaMigrations[len(schemaMigrations)-1]
+	if migration.version != "010_users_phone" || migration.sql != usersPhoneSchemaSQL {
+		t.Fatalf("unexpected latest migration: %s", migration.version)
+	}
+	if strings.TrimSpace(migration.sql) != "alter table users add column phone text not null default '';" {
+		t.Fatalf("phone migration must add an empty default without importing old snapshots: %s", migration.sql)
 	}
 }

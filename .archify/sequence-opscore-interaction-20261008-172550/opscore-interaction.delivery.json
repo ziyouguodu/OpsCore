@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "2e21b8bc-de3b-491e-838f-a31410b989c5",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/candidate.json",
+  "output": "/Users/mac/Desktop/work/OpsCore/.archify/sequence-opscore-interaction-20261008-172550/opscore-interaction.html",
+  "specification": {
+    "sha256": "07f88902cf29834952dceb3571b5fe977f92b0f833bcbc9d5ce2658412a0baad",
+    "bytes": 9032
+  },
+  "artifact": {
+    "sha256": "fdc36a770048441dbd0e6f38f8f9531f51ad43463c7e325078207127ea6646d2",
+    "bytes": 778671
+  }
+}
